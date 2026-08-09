@@ -1,26 +1,26 @@
-from core.services.openai_service import OpenAIService
+from core.services.portfolio_service import PortfolioService
 
 
 def main():
 
-    print("=" * 60)
-    print("🚀 Project Atlas")
-    print("=" * 60)
+    portfolio = PortfolioService()
 
-    print("Version: 0.0.1")
-    print("Status: Online")
+    print("=" * 40)
+    print("PROJECT ATLAS")
+    print("=" * 40)
+
+    print(f"Cash Before: ${portfolio.get_cash():,.2f}")
+
+    if not portfolio.get_holdings():
+        print("Buying 2 shares of AAPL...")
+        portfolio.buy_stock("AAPL", 2, 313.33)
+
+    print(f"Cash After: ${portfolio.get_cash():,.2f}")
     print()
 
-    service = OpenAIService()
-
-    print("Atlas is thinking...")
-    print()
-
-    response = service.ask(
-        "Introduce yourself as Atlas. You are an AI investment analyst that will help manage a $1,000 investment portfolio. Keep your introduction to about 150 words."
-    )
-
-    print(response)
+    print("Current Holdings")
+    for holding in portfolio.get_holdings():
+        print(holding)
 
 
 if __name__ == "__main__":

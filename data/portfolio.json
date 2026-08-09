@@ -1,0 +1,10 @@
+{
+    "cash": 373.34000000000003,
+    "holdings": [
+        {
+            "ticker": "AAPL",
+            "shares": 2,
+            "purchase_price": 313.33
+        }
+    ]
+}
