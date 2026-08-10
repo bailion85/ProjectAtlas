@@ -14,6 +14,7 @@ Project Atlas is an **analysis-only** investment research application. It has no
 - Sector-aware macro assessment covering inflation, rates, unemployment, and GDP growth
 - Configurable strategy weights, committee presets, and weighted decision contributions
 - Saved two-to-four company comparisons with rankings and normalized performance
+- Downloadable PDF exports for current and historical reports and comparisons
 - Documented Alpha Vantage integration for legitimate market/fundamental/news data
 - Clearly labeled offline demo mode
 

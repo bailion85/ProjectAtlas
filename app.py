@@ -16,6 +16,15 @@ import core.services.analysis_service as analysis_service_module
 import core.services.comparison_service as comparison_service_module
 import core.services.report_repository as report_repository_module
 
+try:
+    from core.services.pdf_service import render_comparison_pdf, render_report_pdf
+except ModuleNotFoundError as exc:
+    if exc.name != "reportlab":
+        raise
+    render_comparison_pdf = None
+    render_report_pdf = None
+from core.services.pdf_service import render_comparison_pdf, render_report_pdf
+
 
 # Streamlit can preserve imported project modules across app-only hot reloads.
 modules_reloaded = False
@@ -74,6 +83,8 @@ if macro_provider.name.startswith("Demo"):
     st.warning("Demo macro mode is active. Economic figures are illustrative and are not live.")
 else:
     st.info("This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.")
+if render_report_pdf is None:
+    st.warning("PDF export requires the updated dependencies. Run: python -m pip install -r requirements.txt")
 
 dashboard, research_tab, compare_tab, history_tab = st.tabs(["Dashboard", "Research", "Compare", "Report history"])
 
@@ -145,6 +156,21 @@ with research_tab:
         b.metric("Confidence", f"{report.committee_confidence}%")
         c.metric("Data as of", report.data_as_of[:19].replace("T", " ") + " UTC")
         st.write(report.executive_summary)
+        if render_report_pdf:
+            st.download_button(
+                "Download PDF report",
+                data=render_report_pdf(report),
+                file_name=f"atlas-{report.ticker.lower()}-report.pdf",
+                mime="application/pdf",
+                key=f"download-report-{report.ticker}-{getattr(report, 'report_id', 'current')}",
+            )
+        st.download_button(
+            "Download PDF report",
+            data=render_report_pdf(report),
+            file_name=f"atlas-{report.ticker.lower()}-report.pdf",
+            mime="application/pdf",
+            key=f"download-report-{report.ticker}-{getattr(report, 'report_id', 'current')}",
+        )
         if contributions:
             st.markdown("#### Why this decision?")
             st.dataframe(
@@ -251,6 +277,21 @@ with compare_tab:
     comparison = st.session_state.get("comparison")
     if comparison:
         st.markdown(f"#### Comparison #{comparison['comparison_id']}")
+        if render_comparison_pdf:
+            st.download_button(
+                "Download comparison PDF",
+                data=render_comparison_pdf(comparison),
+                file_name=f"atlas-{'-vs-'.join(ticker.lower() for ticker in comparison['tickers'])}.pdf",
+                mime="application/pdf",
+                key=f"download-comparison-{comparison['comparison_id']}",
+            )
+        st.download_button(
+            "Download comparison PDF",
+            data=render_comparison_pdf(comparison),
+            file_name=f"atlas-{'-vs-'.join(ticker.lower() for ticker in comparison['tickers'])}.pdf",
+            mime="application/pdf",
+            key=f"download-comparison-{comparison['comparison_id']}",
+        )
         for warning in comparison["warnings"]:
             st.warning(warning)
         st.dataframe(comparison["summary"], hide_index=True, use_container_width=True)
@@ -277,6 +318,21 @@ with compare_tab:
             label = f"#{saved_row['id']} · {' vs '.join(saved['tickers'])} · {saved_row['created_at']}"
             with st.expander(label):
                 st.dataframe(saved["summary"], hide_index=True, use_container_width=True)
+                if render_comparison_pdf:
+                    st.download_button(
+                        "Download saved comparison PDF",
+                        data=render_comparison_pdf(saved),
+                        file_name=f"atlas-{'-vs-'.join(ticker.lower() for ticker in saved['tickers'])}.pdf",
+                        mime="application/pdf",
+                        key=f"download-saved-comparison-{saved_row['id']}",
+                    )
+                st.download_button(
+                    "Download saved comparison PDF",
+                    data=render_comparison_pdf(saved),
+                    file_name=f"atlas-{'-vs-'.join(ticker.lower() for ticker in saved['tickers'])}.pdf",
+                    mime="application/pdf",
+                    key=f"download-saved-comparison-{saved_row['id']}",
+                )
 
 with history_tab:
     rows = repository.history()
@@ -288,3 +344,18 @@ with history_tab:
             if saved:
                 st.write(saved.executive_summary)
                 st.caption(f"Provider: {saved.provider} · Data as of: {saved.data_as_of}")
+                if render_report_pdf:
+                    st.download_button(
+                        "Download saved report PDF",
+                        data=render_report_pdf(saved),
+                        file_name=f"atlas-{saved.ticker.lower()}-report.pdf",
+                        mime="application/pdf",
+                        key=f"download-saved-report-{row['id']}",
+                    )
+                st.download_button(
+                    "Download saved report PDF",
+                    data=render_report_pdf(saved),
+                    file_name=f"atlas-{saved.ticker.lower()}-report.pdf",
+                    mime="application/pdf",
+                    key=f"download-saved-report-{row['id']}",
+                )

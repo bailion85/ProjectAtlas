@@ -11,6 +11,7 @@ from core.services.performance_service import analyze_performance
 from core.services.macro_service import score_macro_environment
 from core.services.committee_service import CommitteeService, PRESETS, normalize_weights
 from core.services.comparison_service import ComparisonService
+from core.services.pdf_service import render_comparison_pdf, render_report_pdf
 
 
 def test_demo_search():
@@ -191,3 +192,23 @@ def test_comparison_requires_two_to_four_unique_companies(tmp_path: Path):
             assert "two and four unique" in str(exc)
         else:
             raise AssertionError(f"Expected invalid comparison selection to fail: {tickers}")
+
+
+def test_report_pdf_is_generated(tmp_path: Path):
+    repository = ReportRepository(tmp_path / "atlas.db")
+    report = AnalysisService(DemoProvider(), repository).analyze("GOOGL", PRESETS["Balanced"])
+    pdf = render_report_pdf(report)
+    assert pdf.startswith(b"%PDF-")
+    assert pdf.rstrip().endswith(b"%%EOF")
+    assert len(pdf) > 5000
+
+
+def test_comparison_pdf_is_generated(tmp_path: Path):
+    repository = ReportRepository(tmp_path / "atlas.db")
+    comparison = ComparisonService(AnalysisService(DemoProvider(), repository), repository).compare(
+        ["AAPL", "MSFT"], PRESETS["Balanced"]
+    )
+    pdf = render_comparison_pdf(comparison)
+    assert pdf.startswith(b"%PDF-")
+    assert pdf.rstrip().endswith(b"%%EOF")
+    assert len(pdf) > 4000

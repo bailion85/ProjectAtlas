@@ -22,7 +22,7 @@ clean baseline.
 - Real macroeconomic evidence for the Macro strategy (complete)
 - Configurable strategy weights with explainable scoring (complete)
 - Side-by-side company and report comparison (complete)
-- Exportable research reports
+- Exportable research and comparison PDF reports (complete)
 - Provider caching, rate-limit handling, and broader test coverage
 
 ## Milestone 3 — Decision support
