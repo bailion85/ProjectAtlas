@@ -16,9 +16,9 @@ Exit criteria: the demo workflow passes locally, live-provider failures are show
 clearly, documentation matches the product, and the milestone is committed as a
 clean baseline.
 
-## Milestone 2 — Research depth
+## Milestone 2 — Research depth (in progress)
 
-- Historical performance and benchmark comparisons
+- Historical performance and benchmark comparisons (complete)
 - Real macroeconomic evidence for the Macro strategy
 - Configurable strategy weights with explainable scoring
 - Side-by-side company and report comparison

@@ -44,6 +44,8 @@ class ResearchReport:
     committee_vote: Vote
     committee_confidence: int
     provider: str
+    performance: dict[str, Any] = field(default_factory=dict)
+    performance_history: list[dict[str, Any]] = field(default_factory=list)
     report_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:

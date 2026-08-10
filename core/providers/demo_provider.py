@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 from typing import Any
 
 from core.providers.market_provider import MarketDataProvider, ProviderError
@@ -46,3 +47,25 @@ class DemoProvider(MarketDataProvider):
 
     def news(self, ticker: str) -> list[dict[str, Any]]:
         return []
+
+    def history(self, ticker: str) -> list[dict[str, Any]]:
+        symbol = ticker.upper()
+        if symbol != "SPY" and symbol not in _COMPANIES:
+            raise ProviderError(f"{symbol} is not included in the demo dataset.")
+        target = 642.69 if symbol == "SPY" else _COMPANIES[symbol][3]
+        drift = {"SPY": 0.009, "AAPL": 0.012, "MSFT": 0.013, "NVDA": 0.022, "GOOGL": 0.011, "AMZN": 0.010}[symbol]
+        closes = [100.0]
+        phase = sum(ord(character) for character in symbol) % 11
+        for index in range(1, 61):
+            monthly_return = drift + math.sin(index * 1.7 + phase) * 0.035
+            closes.append(closes[-1] * (1 + monthly_return))
+        scale = target / closes[-1]
+        return [
+            {"date": _month_label(2021, 8, index), "close": round(close * scale, 2)}
+            for index, close in enumerate(closes)
+        ]
+
+
+def _month_label(year: int, month: int, offset: int) -> str:
+    absolute_month = year * 12 + month - 1 + offset
+    return f"{absolute_month // 12:04d}-{absolute_month % 12 + 1:02d}-01"

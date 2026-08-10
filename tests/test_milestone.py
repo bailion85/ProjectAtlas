@@ -4,6 +4,7 @@ from core.providers.demo_provider import DemoProvider
 from core.providers.market_provider import ProviderError
 from core.services.analysis_service import AnalysisService
 from core.services.report_repository import ReportRepository
+from core.services.performance_service import analyze_performance
 
 
 def test_demo_search():
@@ -17,6 +18,8 @@ def test_six_agent_report_is_saved(tmp_path: Path):
     assert {a.strategy for a in report.assessments} == {"Value", "GARP", "Innovation", "Macro", "Quant", "Risk"}
     assert report.report_id is not None
     assert repository.get(report.report_id).ticker == "MSFT"
+    assert report.performance["periods"]["1Y"]["company"] != 0
+    assert len(report.performance_history) == 61
 
 
 def test_watchlist_round_trip(tmp_path: Path):
@@ -59,3 +62,29 @@ def test_report_history_is_newest_first(tmp_path: Path):
     service.analyze("AAPL")
     service.analyze("MSFT")
     assert [row["ticker"] for row in repository.history()] == ["MSFT", "AAPL"]
+
+
+def test_performance_metrics_and_benchmark_comparison():
+    company = [
+        {"date": "2025-01-01", "close": 100},
+        {"date": "2025-07-01", "close": 90},
+        {"date": "2026-01-01", "close": 120},
+    ]
+    benchmark = [
+        {"date": "2025-01-01", "close": 100},
+        {"date": "2025-07-01", "close": 105},
+        {"date": "2026-01-01", "close": 110},
+    ]
+    metrics, chart = analyze_performance(company, benchmark)
+    assert metrics["periods"]["1Y"] == {"company": 20.0, "benchmark": 10.0, "relative": 10.0}
+    assert metrics["max_drawdown"] == -10.0
+    assert chart[-1] == {"date": "2026-01-01", "Company": 120.0, "S&P 500": 110.0}
+
+
+def test_performance_requires_history():
+    try:
+        analyze_performance([{"date": "2026-01-01", "close": 100}], [])
+    except ValueError as exc:
+        assert "two historical observations" in str(exc)
+    else:
+        raise AssertionError("Expected incomplete history to fail")

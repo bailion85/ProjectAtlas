@@ -53,10 +53,13 @@ def _macro(s: dict[str, Any], _: list[dict[str, Any]]) -> tuple[int, str, list[s
 
 
 def _quant(s: dict[str, Any], _: list[dict[str, Any]]) -> tuple[int, str, list[str]]:
-    price, high, low = s.get("price"), s.get("fifty_two_week_high"), s.get("fifty_two_week_low")
-    position = (price - low) / (high - low) if all(v is not None for v in (price, high, low)) and high != low else .5
-    score = int(35 + position * 30)
-    return score, "Uses 52-week price position as a simple, transparent momentum factor.", ["price", "fifty_two_week_high", "fifty_two_week_low"]
+    relative = s.get("relative_return_1y", 0)
+    drawdown = s.get("max_drawdown", -20)
+    volatility = s.get("annualized_volatility", 25)
+    score = 50 + (15 if relative > 10 else 7 if relative > 0 else -12)
+    score += 8 if drawdown > -15 else -8 if drawdown < -30 else 0
+    score += 7 if volatility < 25 else -7 if volatility > 45 else 0
+    return max(0, min(100, score)), "Measures benchmark-relative momentum, volatility, and drawdown over historical prices.", ["return_1y", "relative_return_1y", "annualized_volatility", "max_drawdown"]
 
 
 def _risk(s: dict[str, Any], _: list[dict[str, Any]]) -> tuple[int, str, list[str]]:

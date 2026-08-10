@@ -9,6 +9,8 @@ Project Atlas is an **analysis-only** investment research application. It has no
 - Committee vote, confidence, evidence, provider attribution, and data timestamps
 - Executive summary, bull case, bear case, risks, and catalysts
 - SQLite-backed research-report history
+- Five-year performance history with S&P 500 comparison
+- Total return, relative return, volatility, and maximum drawdown metrics
 - Documented Alpha Vantage integration for legitimate market/fundamental/news data
 - Clearly labeled offline demo mode
 

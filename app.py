@@ -79,6 +79,36 @@ with research_tab:
         b.metric("Confidence", f"{report.committee_confidence}%")
         c.metric("Data as of", report.data_as_of[:19].replace("T", " ") + " UTC")
         st.write(report.executive_summary)
+        if report.performance:
+            st.markdown("#### Historical performance")
+            periods = report.performance["periods"]
+            one_year = periods["1Y"]
+            p1, p2, p3 = st.columns(3)
+            p1.metric("1-year return", f"{one_year['company']:.1f}%")
+            p2.metric("vs. S&P 500", f"{one_year['relative']:+.1f} pp")
+            p3.metric("Maximum drawdown", f"{report.performance['max_drawdown']:.1f}%")
+            st.line_chart(
+                report.performance_history,
+                x="date",
+                y=["Company", "S&P 500"],
+            )
+            st.dataframe(
+                [
+                    {
+                        "Period": period,
+                        report.ticker: f"{values['company']:.2f}%",
+                        "S&P 500": f"{values['benchmark']:.2f}%",
+                        "Relative": f"{values['relative']:+.2f} pp",
+                    }
+                    for period, values in periods.items()
+                ],
+                hide_index=True,
+                use_container_width=True,
+            )
+            st.caption(
+                f"Annualized volatility: {report.performance['annualized_volatility']:.1f}% · "
+                f"{report.performance['observations']} monthly observations · Growth indexed to 100"
+            )
         for title, items in [
             ("Bull case", report.bull_case),
             ("Bear case", report.bear_case),

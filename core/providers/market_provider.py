@@ -21,6 +21,9 @@ class MarketDataProvider(ABC):
     @abstractmethod
     def news(self, ticker: str) -> list[dict[str, Any]]: ...
 
+    @abstractmethod
+    def history(self, ticker: str) -> list[dict[str, Any]]: ...
+
 
 class AlphaVantageProvider(MarketDataProvider):
     """Adapter for Alpha Vantage's documented JSON API."""
@@ -123,6 +126,19 @@ class AlphaVantageProvider(MarketDataProvider):
             }
             for item in feed
         ]
+
+    def history(self, ticker: str) -> list[dict[str, Any]]:
+        series = self._get(function="TIME_SERIES_MONTHLY_ADJUSTED", symbol=ticker).get(
+            "Monthly Adjusted Time Series", {}
+        )
+        points = []
+        for observed_on, values in series.items():
+            close = _float(values.get("5. adjusted close") or values.get("4. close"))
+            if close is not None:
+                points.append({"date": observed_on, "close": close})
+        if not points:
+            raise ProviderError(f"No price history found for {ticker.upper()}.")
+        return sorted(points, key=lambda point: point["date"])[-61:]
 
 
 def _float(value: Any) -> float | None:
