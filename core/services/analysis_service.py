@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+from dataclasses import replace
+
+from core.agents import build_strategy_agents
+from core.models.research import ResearchReport, utc_now
+from core.providers.market_provider import MarketDataProvider
+from core.services.committee_service import CommitteeService
+from core.services.report_repository import ReportRepository
+
+
+class AnalysisService:
+    def __init__(self, provider: MarketDataProvider, repository: ReportRepository):
+        self.provider = provider
+        self.repository = repository
+
+    def analyze(self, ticker: str) -> ResearchReport:
+        stock = self.provider.snapshot(ticker)
+        news = self.provider.news(ticker)
+        assessments = [agent.assess(stock, news) for agent in build_strategy_agents()]
+        vote, confidence = CommitteeService().decide(assessments)
+        bullish = [a for a in assessments if a.vote == "bullish"]
+        bearish = [a for a in assessments if a.vote == "bearish"]
+        report = ResearchReport(
+            ticker=stock["symbol"], company=stock["name"], created_at=utc_now(),
+            data_as_of=stock["observed_at"],
+            executive_summary=f"The six-strategy committee is {vote} with {confidence}% confidence. This is research, not investment advice.",
+            bull_case=[a.thesis for a in bullish] or ["No strategy produced a bullish vote."],
+            bear_case=[a.thesis for a in bearish] or ["No strategy produced a bearish vote."],
+            risks=_risks(stock), catalysts=_catalysts(stock, news), assessments=assessments,
+            committee_vote=vote, committee_confidence=confidence, provider=self.provider.name,
+        )
+        report_id = self.repository.save(report)
+        return replace(report, report_id=report_id)
+
+
+def _risks(stock: dict) -> list[str]:
+    risks = []
+    if stock.get("pe_ratio") and stock["pe_ratio"] > 40:
+        risks.append("Elevated valuation may amplify downside if expectations reset.")
+    if stock.get("beta") and stock["beta"] > 1.5:
+        risks.append("High historical beta indicates above-market price volatility.")
+    if stock.get("profit_margin") is not None and stock["profit_margin"] < .05:
+        risks.append("Thin profit margins reduce operating resilience.")
+    return risks or ["Provider data is incomplete; qualitative, balance-sheet, and event risks require further review."]
+
+
+def _catalysts(stock: dict, news: list[dict]) -> list[str]:
+    catalysts = []
+    if stock.get("revenue_growth") and stock["revenue_growth"] > .15:
+        catalysts.append("Sustained double-digit revenue growth could support upward revisions.")
+    catalysts.extend(item["title"] for item in news[:3] if item.get("title"))
+    return catalysts or ["No verified catalyst was available from the configured data provider."]

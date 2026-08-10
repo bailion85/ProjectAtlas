@@ -1,29 +1,33 @@
 # Project Atlas Roadmap
 
-## Sprint 1 ✅
-- Development Environment
-- Git
-- GitHub
-- Project Structure
+Atlas is an analysis-only investment research application. Brokerage connectivity,
+order entry, paper trading, and live trading are outside the product scope.
 
-## Sprint 2 🚧
-- Environment Variables
-- OpenAI Connection
-- Configuration
-- Logging
+## Milestone 1 — Research foundation (stabilization)
 
-## Sprint 3
-- Market Data
-- Watchlists
+- Streamlit dashboard with ticker search and persistent watchlist
+- Six transparent strategy assessments and a committee decision
+- Evidence, source attribution, and observation timestamps
+- SQLite-backed report history
+- Offline demo provider and documented Alpha Vantage adapter
+- Automated coverage for the core demo workflow
 
-## Sprint 4
-- AI Research
+Exit criteria: the demo workflow passes locally, live-provider failures are shown
+clearly, documentation matches the product, and the milestone is committed as a
+clean baseline.
 
-## Sprint 5
-- Portfolio Manager
+## Milestone 2 — Research depth
 
-## Sprint 6
-- Paper Trading
+- Historical performance and benchmark comparisons
+- Real macroeconomic evidence for the Macro strategy
+- Configurable strategy weights with explainable scoring
+- Side-by-side company and report comparison
+- Exportable research reports
+- Provider caching, rate-limit handling, and broader test coverage
 
-## Sprint 7
-- Live Portfolio
+## Milestone 3 — Decision support
+
+- Portfolio exposure analysis without transaction execution
+- Thesis tracking and catalyst monitoring
+- Report-to-report change detection
+- Watchlist alerts and scheduled research refreshes

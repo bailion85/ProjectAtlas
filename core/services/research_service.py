@@ -4,30 +4,67 @@ from core.services.openai_service import OpenAIService
 class ResearchService:
 
     def __init__(self):
+
         self.ai = OpenAIService()
 
-    def analyze_stock(self, stock):
+    def build_report(self, stock, financial):
 
         prompt = f"""
-You are Atlas, an AI investment analyst.
+You are Atlas, the Chief Investment Officer.
 
-Analyze the following company.
+Your job is NOT to invent facts.
 
-Company: {stock["name"]}
-Ticker: {stock["symbol"]}
-Current Price: {stock["price"]}
-Market Cap: {stock["market_cap"]}
-P/E Ratio: {stock["pe_ratio"]}
-Sector: {stock["sector"]}
-Industry: {stock["industry"]}
+You must ONLY use the financial evidence provided.
 
-Write a short investment summary that includes:
+Company:
+{stock['name']}
 
-1. Strengths
-2. Risks
-3. Overall opinion
+Ticker:
+{stock['symbol']}
 
-Keep it under 250 words.
+Industry:
+{stock['industry']}
+
+Sector:
+{stock['sector']}
+
+Current Price:
+{stock['price']}
+
+Financial Score:
+{financial.overall_score}/100
+
+Strengths:
+{chr(10).join(financial.strengths)}
+
+Weaknesses:
+{chr(10).join(financial.weaknesses)}
+
+Reasoning:
+{financial.reasoning}
+
+Metrics:
+{financial.metrics}
+
+Write a professional investment report with the following sections:
+
+1. Executive Summary
+
+2. Financial Assessment
+
+3. Strengths
+
+4. Weaknesses
+
+5. Risks
+
+6. Overall Opinion
+
+Do not make up numbers.
+
+Do not mention information not provided.
+
+Write like a professional equity research analyst.
 """
 
         return self.ai.ask(prompt)

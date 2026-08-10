@@ -1,60 +1,38 @@
-from core.services.watchlist_service import WatchlistService
-from core.services.market_data_service import MarketDataService
-from core.services.scoring_service import ScoringService
-from core.services.decision_service import DecisionService
-
-from core.models.stock_analysis import StockAnalysis
+from atlas import Atlas
 
 
 def main():
 
-    print("=" * 60)
-    print("🚀 PROJECT ATLAS")
-    print("=" * 60)
+    atlas = Atlas()
 
-    watchlist = WatchlistService()
-    market = MarketDataService()
-    scoring = ScoringService()
-    decision = DecisionService()
+    while True:
 
-    analyses = []
+        print("\n" + "=" * 70)
+        print("PROJECT ATLAS")
+        print("=" * 70)
 
-    print("\nScanning Watchlist...\n")
+        print("1. Analyze My Watchlist")
+        print("2. Discover New Opportunities")
+        print("3. Exit")
 
-    for ticker in watchlist.get_watchlist():
+        choice = input("\nSelect an option: ")
 
-        stock = market.get_stock_info(ticker)
+        if choice == "1":
 
-        score = scoring.score_stock(stock)
+            atlas.run_watchlist()
 
-        analysis = StockAnalysis(stock, score)
+        elif choice == "2":
 
-        analyses.append(analysis)
+            atlas.run_discovery()
 
-    ranked = decision.rank(analyses)
+        elif choice == "3":
 
-    print("=" * 60)
-    print("Today's Rankings")
-    print("=" * 60)
+            print("\nGoodbye.")
+            break
 
-    for i, analysis in enumerate(ranked, start=1):
-        print(
-            f"{i}. {analysis.symbol:<6} "
-            f"Score: {analysis.score}"
-        )
+        else:
 
-    recommendation = decision.recommend(analyses)
-
-    print("\n" + "=" * 60)
-    print("📈 Today's Recommendation")
-    print("=" * 60)
-
-    print(f"BUY: {recommendation.symbol}")
-    print(f"Company: {recommendation.company}")
-    print(f"Current Price: ${recommendation.price}")
-    print(f"Score: {recommendation.score}/100")
-
-    print("\n✅ Analysis Complete")
+            print("\nInvalid selection.")
 
 
 if __name__ == "__main__":
