@@ -5,19 +5,22 @@ from dataclasses import replace
 from core.agents import build_strategy_agents
 from core.models.research import ResearchReport, utc_now
 from core.providers.market_provider import MarketDataProvider
+from core.providers.economic_provider import DemoEconomicProvider, EconomicDataProvider
 from core.services.committee_service import CommitteeService
 from core.services.report_repository import ReportRepository
 from core.services.performance_service import analyze_performance
 
 
 class AnalysisService:
-    def __init__(self, provider: MarketDataProvider, repository: ReportRepository):
+    def __init__(self, provider: MarketDataProvider, repository: ReportRepository, economic_provider: EconomicDataProvider | None = None):
         self.provider = provider
         self.repository = repository
+        self.economic_provider = economic_provider or DemoEconomicProvider()
 
     def analyze(self, ticker: str) -> ResearchReport:
         stock = self.provider.snapshot(ticker)
         news = self.provider.news(ticker)
+        macro = self.economic_provider.snapshot()
         performance, performance_history = analyze_performance(
             self.provider.history(stock["symbol"]), self.provider.history("SPY")
         )
@@ -27,7 +30,10 @@ class AnalysisService:
             "relative_return_1y": one_year["relative"],
             "annualized_volatility": performance["annualized_volatility"],
             "max_drawdown": performance["max_drawdown"],
+            "macro": macro,
         })
+        for key, indicator in macro["indicators"].items():
+            stock[f"macro_{key}"] = indicator["value"]
         assessments = [agent.assess(stock, news) for agent in build_strategy_agents()]
         vote, confidence = CommitteeService().decide(assessments)
         bullish = [a for a in assessments if a.vote == "bullish"]
@@ -41,6 +47,7 @@ class AnalysisService:
             risks=_risks(stock), catalysts=_catalysts(stock, news), assessments=assessments,
             committee_vote=vote, committee_confidence=confidence, provider=self.provider.name,
             performance=performance, performance_history=performance_history,
+            macro=macro,
         )
         report_id = self.repository.save(report)
         return replace(report, report_id=report_id)

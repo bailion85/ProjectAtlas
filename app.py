@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 from core.providers.demo_provider import DemoProvider
 from core.providers.market_provider import AlphaVantageProvider, ProviderError
+from core.providers.economic_provider import DemoEconomicProvider, FredProvider
 from core.services.analysis_service import AnalysisService
 from core.services.report_repository import ReportRepository
 
@@ -19,15 +20,17 @@ st.set_page_config(page_title="Project Atlas", page_icon="🧭", layout="wide")
 def services():
     provider_name = os.getenv("ATLAS_DATA_PROVIDER", "demo").lower()
     provider = AlphaVantageProvider() if provider_name == "alpha_vantage" else DemoProvider()
+    macro_provider_name = os.getenv("ATLAS_MACRO_PROVIDER", "demo").lower()
+    macro_provider = FredProvider() if macro_provider_name == "fred" else DemoEconomicProvider()
     repository = ReportRepository(os.getenv("ATLAS_DATABASE_PATH", "data/atlas.db"))
-    return provider, repository, AnalysisService(provider, repository)
+    return provider, macro_provider, repository, AnalysisService(provider, repository, macro_provider)
 
 
 st.title("Project Atlas")
 st.caption("Analysis-only investment research — no trading or brokerage connectivity")
 
 try:
-    provider, repository, analysis = services()
+    provider, macro_provider, repository, analysis = services()
 except ProviderError as exc:
     st.error(f"Data provider configuration error: {exc}")
     st.info("Set ATLAS_DATA_PROVIDER=demo to use Atlas without a live-data API key.")
@@ -35,6 +38,8 @@ except ProviderError as exc:
 
 if provider.name.startswith("Demo"):
     st.warning("Demo mode is active. Figures are illustrative and are not live market data.")
+if macro_provider.name.startswith("Demo"):
+    st.warning("Demo macro mode is active. Economic figures are illustrative and are not live.")
 
 dashboard, research_tab, history_tab = st.tabs(["Dashboard", "Research", "Report history"])
 
@@ -75,6 +80,7 @@ with research_tab:
     if report:
         performance = getattr(report, "performance", {})
         performance_history = getattr(report, "performance_history", [])
+        macro = getattr(report, "macro", {})
         st.subheader(f"{report.company} ({report.ticker})")
         a, b, c = st.columns(3)
         a.metric("Committee vote", report.committee_vote.title())
@@ -113,6 +119,17 @@ with research_tab:
             )
         elif not hasattr(report, "performance"):
             st.info("This report predates historical performance. Run the analysis again to add the comparison.")
+        if macro:
+            st.markdown("#### Macro environment")
+            indicators = macro["indicators"]
+            columns = st.columns(len(indicators))
+            for column, indicator in zip(columns, indicators.values()):
+                column.metric(indicator["label"], f"{indicator['value']:.2f} {indicator['unit']}")
+                column.caption(f"As of {indicator['observed_at']} · {indicator['series_id']}")
+            stale = [indicator["label"] for indicator in indicators.values() if indicator["stale"]]
+            if stale:
+                st.warning("Potentially stale macro series: " + ", ".join(stale))
+            st.caption(f"Source: {macro['provider']} · Retrieved {macro['retrieved_at'][:19].replace('T', ' ')} UTC")
         for title, items in [
             ("Bull case", report.bull_case),
             ("Bear case", report.bear_case),

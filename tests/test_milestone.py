@@ -1,10 +1,13 @@
 from pathlib import Path
+from unittest.mock import patch
 
 from core.providers.demo_provider import DemoProvider
 from core.providers.market_provider import ProviderError
+from core.providers.economic_provider import DemoEconomicProvider, FredProvider
 from core.services.analysis_service import AnalysisService
 from core.services.report_repository import ReportRepository
 from core.services.performance_service import analyze_performance
+from core.services.macro_service import score_macro_environment
 
 
 def test_demo_search():
@@ -20,6 +23,11 @@ def test_six_agent_report_is_saved(tmp_path: Path):
     assert repository.get(report.report_id).ticker == "MSFT"
     assert report.performance["periods"]["1Y"]["company"] != 0
     assert len(report.performance_history) == 61
+    assert len(report.macro["indicators"]) == 5
+    macro_assessment = next(item for item in report.assessments if item.strategy == "Macro")
+    assert {evidence.label for evidence in macro_assessment.evidence} == {
+        "Inflation", "Federal funds rate", "10-year Treasury yield", "Unemployment rate", "Real GDP growth"
+    }
 
 
 def test_watchlist_round_trip(tmp_path: Path):
@@ -88,3 +96,28 @@ def test_performance_requires_history():
         assert "two historical observations" in str(exc)
     else:
         raise AssertionError("Expected incomplete history to fail")
+
+
+def test_demo_macro_snapshot_is_attributed_and_current():
+    macro = DemoEconomicProvider().snapshot()
+    assert macro["provider"] == "Demo macro data (not live)"
+    assert all(indicator["source"] == macro["provider"] for indicator in macro["indicators"].values())
+    assert not any(indicator["stale"] for indicator in macro["indicators"].values())
+
+
+def test_fred_requires_api_key():
+    with patch.dict("os.environ", {}, clear=True):
+        try:
+            FredProvider()
+        except ProviderError as exc:
+            assert "FRED_API_KEY" in str(exc)
+        else:
+            raise AssertionError("Expected a missing FRED API key to fail")
+
+
+def test_macro_score_reflects_sector_rate_sensitivity():
+    macro = DemoEconomicProvider().snapshot()
+    low_rate_score, _ = score_macro_environment("Technology", macro)
+    macro["indicators"]["policy_rate"]["value"] = 6.0
+    high_rate_score, _ = score_macro_environment("Technology", macro)
+    assert low_rate_score > high_rate_score

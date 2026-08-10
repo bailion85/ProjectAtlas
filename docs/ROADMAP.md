@@ -19,7 +19,7 @@ clean baseline.
 ## Milestone 2 — Research depth (in progress)
 
 - Historical performance and benchmark comparisons (complete)
-- Real macroeconomic evidence for the Macro strategy
+- Real macroeconomic evidence for the Macro strategy (complete)
 - Configurable strategy weights with explainable scoring
 - Side-by-side company and report comparison
 - Exportable research reports

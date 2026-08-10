@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from core.models.research import AgentAssessment, Evidence, Vote
+from core.services.macro_service import score_macro_environment
 
 
 @dataclass(frozen=True)
@@ -15,10 +16,7 @@ class StrategyAgent:
         score, thesis, labels = self.evaluator(stock, news)
         vote: Vote = "bullish" if score >= 65 else "bearish" if score <= 35 else "neutral"
         confidence = min(95, 50 + abs(score - 50))
-        evidence = [
-            Evidence(label=label, value=_display(stock.get(label)), source=stock["source"], observed_at=stock["observed_at"])
-            for label in labels if stock.get(label) is not None
-        ]
+        evidence = [_evidence(stock, label) for label in labels if stock.get(label) is not None]
         return AgentAssessment(self.name, vote, confidence, thesis, evidence)
 
 
@@ -26,6 +24,23 @@ def _display(value: Any) -> str:
     if isinstance(value, float):
         return f"{value:.2f}"
     return str(value)
+
+
+def _evidence(stock: dict[str, Any], label: str) -> Evidence:
+    if label.startswith("macro_"):
+        indicator = stock["macro"]["indicators"][label.removeprefix("macro_")]
+        return Evidence(
+            label=indicator["label"],
+            value=f"{indicator['value']:.2f} {indicator['unit']}",
+            source=f"{indicator['source']} · {indicator['series_id']}",
+            observed_at=indicator["observed_at"],
+        )
+    return Evidence(
+        label=label,
+        value=_display(stock.get(label)),
+        source=stock["source"],
+        observed_at=stock["observed_at"],
+    )
 
 
 def _value(s: dict[str, Any], _: list[dict[str, Any]]) -> tuple[int, str, list[str]]:
@@ -47,9 +62,8 @@ def _innovation(s: dict[str, Any], news: list[dict[str, Any]]) -> tuple[int, str
 
 
 def _macro(s: dict[str, Any], _: list[dict[str, Any]]) -> tuple[int, str, list[str]]:
-    beta = s.get("beta")
-    score = 50 + (10 if beta is not None and beta < 1 else -8 if beta and beta > 1.5 else 0)
-    return score, "Estimates sensitivity to broad market conditions; macro-series integration is a later milestone.", ["beta", "sector"]
+    score, thesis = score_macro_environment(s.get("sector"), s["macro"])
+    return score, thesis, ["macro_inflation", "macro_policy_rate", "macro_treasury_10y", "macro_unemployment", "macro_gdp_growth"]
 
 
 def _quant(s: dict[str, Any], _: list[dict[str, Any]]) -> tuple[int, str, list[str]]:
