@@ -9,6 +9,7 @@ from core.providers.demo_provider import DemoProvider
 from core.providers.market_provider import AlphaVantageProvider, ProviderError
 from core.providers.economic_provider import DemoEconomicProvider, FredProvider
 from core.services.analysis_service import AnalysisService
+from core.services.committee_service import PRESETS, STRATEGIES, normalize_weights
 from core.services.report_repository import ReportRepository
 
 
@@ -40,6 +41,8 @@ if provider.name.startswith("Demo"):
     st.warning("Demo mode is active. Figures are illustrative and are not live market data.")
 if macro_provider.name.startswith("Demo"):
     st.warning("Demo macro mode is active. Economic figures are illustrative and are not live.")
+else:
+    st.info("This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.")
 
 dashboard, research_tab, history_tab = st.tabs(["Dashboard", "Research", "Report history"])
 
@@ -68,10 +71,33 @@ with dashboard:
 
 with research_tab:
     ticker = st.text_input("Ticker to analyze", value=(repository.watchlist() or ["AAPL"])[0]).upper().strip()
-    if st.button("Run six-strategy analysis", type="primary", disabled=not ticker):
+    with st.expander("Committee configuration"):
+        preset_name = st.selectbox("Start from preset", list(PRESETS), index=0)
+        if st.session_state.get("last_committee_preset") != preset_name:
+            for strategy, value in PRESETS[preset_name].items():
+                st.session_state[f"weight_{strategy}"] = value
+            st.session_state["last_committee_preset"] = preset_name
+        weight_columns = st.columns(3)
+        strategy_weights = {}
+        for index, strategy in enumerate(STRATEGIES):
+            strategy_weights[strategy] = weight_columns[index % 3].slider(
+                strategy,
+                min_value=0,
+                max_value=100,
+                key=f"weight_{strategy}",
+            )
+        try:
+            normalized_preview = normalize_weights(strategy_weights)
+            st.caption("Normalized weights: " + " · ".join(
+                f"{strategy} {weight:.1f}%" for strategy, weight in normalized_preview.items()
+            ))
+        except ValueError as exc:
+            normalized_preview = {}
+            st.error(str(exc))
+    if st.button("Run six-strategy analysis", type="primary", disabled=not ticker or not normalized_preview):
         try:
             with st.spinner("Building evidence-based committee assessment…"):
-                st.session_state["report"] = analysis.analyze(ticker)
+                st.session_state["report"] = analysis.analyze(ticker, strategy_weights)
         except (ProviderError, ValueError) as exc:
             st.error(str(exc))
         except Exception as exc:
@@ -81,12 +107,30 @@ with research_tab:
         performance = getattr(report, "performance", {})
         performance_history = getattr(report, "performance_history", [])
         macro = getattr(report, "macro", {})
+        contributions = getattr(report, "committee_contributions", [])
         st.subheader(f"{report.company} ({report.ticker})")
         a, b, c = st.columns(3)
         a.metric("Committee vote", report.committee_vote.title())
         b.metric("Confidence", f"{report.committee_confidence}%")
         c.metric("Data as of", report.data_as_of[:19].replace("T", " ") + " UTC")
         st.write(report.executive_summary)
+        if contributions:
+            st.markdown("#### Why this decision?")
+            st.dataframe(
+                [
+                    {
+                        "Strategy": item["strategy"],
+                        "Weight": f"{item['weight']:.1f}%",
+                        "Vote": item["vote"].title(),
+                        "Confidence": f"{item['confidence']}%",
+                        "Weighted signal": f"{item['weighted_signal']:+.2f}",
+                    }
+                    for item in contributions
+                ],
+                hide_index=True,
+                use_container_width=True,
+            )
+            st.caption("Positive signals support a bullish vote; negative signals support a bearish vote.")
         if performance and performance_history:
             st.markdown("#### Historical performance")
             periods = performance["periods"]

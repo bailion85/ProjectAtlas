@@ -4,10 +4,12 @@ from unittest.mock import patch
 from core.providers.demo_provider import DemoProvider
 from core.providers.market_provider import ProviderError
 from core.providers.economic_provider import DemoEconomicProvider, FredProvider
+from core.models.research import AgentAssessment
 from core.services.analysis_service import AnalysisService
 from core.services.report_repository import ReportRepository
 from core.services.performance_service import analyze_performance
 from core.services.macro_service import score_macro_environment
+from core.services.committee_service import CommitteeService, PRESETS, normalize_weights
 
 
 def test_demo_search():
@@ -121,3 +123,43 @@ def test_macro_score_reflects_sector_rate_sensitivity():
     macro["indicators"]["policy_rate"]["value"] = 6.0
     high_rate_score, _ = score_macro_environment("Technology", macro)
     assert low_rate_score > high_rate_score
+
+
+def test_committee_presets_normalize_to_one_hundred_percent():
+    for preset in PRESETS.values():
+        weights = normalize_weights(preset)
+        assert sum(weights.values()) == 100
+        assert set(weights) == {"Value", "GARP", "Innovation", "Macro", "Quant", "Risk"}
+
+
+def test_committee_rejects_zero_weights():
+    try:
+        normalize_weights({strategy: 0 for strategy in PRESETS["Balanced"]})
+    except ValueError as exc:
+        assert "greater than zero" in str(exc)
+    else:
+        raise AssertionError("Expected zero strategy weights to fail")
+
+
+def test_report_preserves_strategy_configuration(tmp_path: Path):
+    repository = ReportRepository(tmp_path / "atlas.db")
+    custom = {"Value": 40, "GARP": 20, "Innovation": 10, "Macro": 10, "Quant": 10, "Risk": 10}
+    report = AnalysisService(DemoProvider(), repository).analyze("AAPL", custom)
+    saved = repository.get(report.report_id)
+    assert saved.strategy_weights == normalize_weights(custom)
+    assert saved.committee_contributions == report.committee_contributions
+
+
+def test_weights_can_change_committee_decision():
+    assessments = [
+        AgentAssessment(strategy, "bullish" if strategy == "Value" else "bearish" if strategy == "Risk" else "neutral", 90, "Test thesis")
+        for strategy in PRESETS["Balanced"]
+    ]
+    value_only = {strategy: int(strategy == "Value") for strategy in PRESETS["Balanced"]}
+    risk_only = {strategy: int(strategy == "Risk") for strategy in PRESETS["Balanced"]}
+    bullish_vote, _, bullish_contributions = CommitteeService().decide(assessments, value_only)
+    bearish_vote, _, bearish_contributions = CommitteeService().decide(assessments, risk_only)
+    assert bullish_vote == "bullish"
+    assert bearish_vote == "bearish"
+    assert sum(item["weighted_signal"] for item in bullish_contributions) > 0
+    assert sum(item["weighted_signal"] for item in bearish_contributions) < 0

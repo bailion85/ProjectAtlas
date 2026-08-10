@@ -12,6 +12,7 @@ Project Atlas is an **analysis-only** investment research application. It has no
 - Five-year performance history with S&P 500 comparison
 - Total return, relative return, volatility, and maximum drawdown metrics
 - Sector-aware macro assessment covering inflation, rates, unemployment, and GDP growth
+- Configurable strategy weights, committee presets, and weighted decision contributions
 - Documented Alpha Vantage integration for legitimate market/fundamental/news data
 - Clearly labeled offline demo mode
 

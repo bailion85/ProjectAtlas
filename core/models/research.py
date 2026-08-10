@@ -47,6 +47,8 @@ class ResearchReport:
     performance: dict[str, Any] = field(default_factory=dict)
     performance_history: list[dict[str, Any]] = field(default_factory=list)
     macro: dict[str, Any] = field(default_factory=dict)
+    strategy_weights: dict[str, float] = field(default_factory=dict)
+    committee_contributions: list[dict[str, Any]] = field(default_factory=list)
     report_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
