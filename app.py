@@ -73,22 +73,24 @@ with research_tab:
             st.error(f"Analysis failed: {exc}")
     report = st.session_state.get("report")
     if report:
+        performance = getattr(report, "performance", {})
+        performance_history = getattr(report, "performance_history", [])
         st.subheader(f"{report.company} ({report.ticker})")
         a, b, c = st.columns(3)
         a.metric("Committee vote", report.committee_vote.title())
         b.metric("Confidence", f"{report.committee_confidence}%")
         c.metric("Data as of", report.data_as_of[:19].replace("T", " ") + " UTC")
         st.write(report.executive_summary)
-        if report.performance:
+        if performance and performance_history:
             st.markdown("#### Historical performance")
-            periods = report.performance["periods"]
+            periods = performance["periods"]
             one_year = periods["1Y"]
             p1, p2, p3 = st.columns(3)
             p1.metric("1-year return", f"{one_year['company']:.1f}%")
             p2.metric("vs. S&P 500", f"{one_year['relative']:+.1f} pp")
-            p3.metric("Maximum drawdown", f"{report.performance['max_drawdown']:.1f}%")
+            p3.metric("Maximum drawdown", f"{performance['max_drawdown']:.1f}%")
             st.line_chart(
-                report.performance_history,
+                performance_history,
                 x="date",
                 y=["Company", "S&P 500"],
             )
@@ -106,9 +108,11 @@ with research_tab:
                 use_container_width=True,
             )
             st.caption(
-                f"Annualized volatility: {report.performance['annualized_volatility']:.1f}% · "
-                f"{report.performance['observations']} monthly observations · Growth indexed to 100"
+                f"Annualized volatility: {performance['annualized_volatility']:.1f}% · "
+                f"{performance['observations']} monthly observations · Growth indexed to 100"
             )
+        elif not hasattr(report, "performance"):
+            st.info("This report predates historical performance. Run the analysis again to add the comparison.")
         for title, items in [
             ("Bull case", report.bull_case),
             ("Bear case", report.bear_case),
