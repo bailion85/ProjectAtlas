@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import os
 
 import streamlit as st
@@ -11,12 +12,18 @@ from core.providers.economic_provider import DemoEconomicProvider, FredProvider
 from core.services.analysis_service import AnalysisService
 from core.services.committee_service import PRESETS, STRATEGIES, normalize_weights
 from core.services.comparison_service import ComparisonService
-from core.services.report_repository import ReportRepository
+import core.services.report_repository as report_repository_module
+
+
+# Streamlit can preserve imported service modules across app-only hot reloads.
+if not hasattr(report_repository_module.ReportRepository, "comparison_history"):
+    report_repository_module = importlib.reload(report_repository_module)
+ReportRepository = report_repository_module.ReportRepository
 
 
 load_dotenv()
 st.set_page_config(page_title="Project Atlas", page_icon="🧭", layout="wide")
-SERVICE_CACHE_VERSION = "comparison-schema-v1"
+SERVICE_CACHE_VERSION = "comparison-schema-v2"
 
 
 @st.cache_resource
