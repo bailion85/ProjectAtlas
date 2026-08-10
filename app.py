@@ -16,10 +16,13 @@ from core.services.report_repository import ReportRepository
 
 load_dotenv()
 st.set_page_config(page_title="Project Atlas", page_icon="🧭", layout="wide")
+SERVICE_CACHE_VERSION = "comparison-schema-v1"
 
 
 @st.cache_resource
-def services():
+def services(cache_version: str):
+    # Changing this key refreshes long-lived objects after service or database upgrades.
+    _ = cache_version
     provider_name = os.getenv("ATLAS_DATA_PROVIDER", "demo").lower()
     provider = AlphaVantageProvider() if provider_name == "alpha_vantage" else DemoProvider()
     macro_provider_name = os.getenv("ATLAS_MACRO_PROVIDER", "demo").lower()
@@ -32,7 +35,7 @@ st.title("Project Atlas")
 st.caption("Analysis-only investment research — no trading or brokerage connectivity")
 
 try:
-    provider, macro_provider, repository, analysis = services()
+    provider, macro_provider, repository, analysis = services(SERVICE_CACHE_VERSION)
 except ProviderError as exc:
     st.error(f"Data provider configuration error: {exc}")
     st.info("Set ATLAS_DATA_PROVIDER=demo to use Atlas without a live-data API key.")
