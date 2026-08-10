@@ -10,6 +10,7 @@ from core.services.report_repository import ReportRepository
 from core.services.performance_service import analyze_performance
 from core.services.macro_service import score_macro_environment
 from core.services.committee_service import CommitteeService, PRESETS, normalize_weights
+from core.services.comparison_service import ComparisonService
 
 
 def test_demo_search():
@@ -163,3 +164,30 @@ def test_weights_can_change_committee_decision():
     assert bearish_vote == "bearish"
     assert sum(item["weighted_signal"] for item in bullish_contributions) > 0
     assert sum(item["weighted_signal"] for item in bearish_contributions) < 0
+
+
+def test_comparison_is_ranked_and_saved(tmp_path: Path):
+    repository = ReportRepository(tmp_path / "atlas.db")
+    analysis = AnalysisService(DemoProvider(), repository)
+    comparison = ComparisonService(analysis, repository).compare(["AAPL", "MSFT"], PRESETS["Balanced"])
+    assert comparison["comparison_id"] is not None
+    assert comparison["tickers"] == ["AAPL", "MSFT"]
+    assert [row["Rank"] for row in comparison["summary"]] == [1, 2]
+    assert comparison["summary"][0]["Score"] >= comparison["summary"][1]["Score"]
+    assert len(comparison["strategy_table"]) == 6
+    assert len(comparison["performance_history"]) == 61
+    saved = repository.get_comparison(comparison["comparison_id"])
+    assert saved["strategy_weights"] == normalize_weights(PRESETS["Balanced"])
+    assert repository.comparison_history()[0]["id"] == comparison["comparison_id"]
+
+
+def test_comparison_requires_two_to_four_unique_companies(tmp_path: Path):
+    repository = ReportRepository(tmp_path / "atlas.db")
+    service = ComparisonService(AnalysisService(DemoProvider(), repository), repository)
+    for tickers in (["AAPL"], ["AAPL", "AAPL"], ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]):
+        try:
+            service.compare(tickers, PRESETS["Balanced"])
+        except ValueError as exc:
+            assert "two and four unique" in str(exc)
+        else:
+            raise AssertionError(f"Expected invalid comparison selection to fail: {tickers}")

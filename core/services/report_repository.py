@@ -29,6 +29,7 @@ class ReportRepository:
         with self._connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS watchlist (ticker TEXT PRIMARY KEY, added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
             db.execute("CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY, ticker TEXT NOT NULL, created_at TEXT NOT NULL, payload TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS comparisons (id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL)")
 
     def watchlist(self) -> list[str]:
         with self._connect() as db:
@@ -62,6 +63,25 @@ class ReportRepository:
         data["assessments"] = [AgentAssessment(**{**a, "evidence": [Evidence(**e) for e in a["evidence"]]}) for a in data["assessments"]]
         data["report_id"] = report_id
         return ResearchReport(**data)
+
+    def save_comparison(self, comparison: dict[str, Any]) -> int:
+        with self._connect() as db:
+            cursor = db.execute(
+                "INSERT INTO comparisons(created_at, payload) VALUES (?, ?)",
+                (comparison["created_at"], json.dumps(comparison)),
+            )
+            return int(cursor.lastrowid)
+
+    def comparison_history(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            return [dict(row) for row in db.execute(
+                "SELECT id, created_at, payload FROM comparisons ORDER BY id DESC LIMIT ?", (limit,)
+            )]
+
+    def get_comparison(self, comparison_id: int) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute("SELECT payload FROM comparisons WHERE id = ?", (comparison_id,)).fetchone()
+        return json.loads(row["payload"]) if row else None
 
 
 def _normalize_ticker(ticker: str) -> str:

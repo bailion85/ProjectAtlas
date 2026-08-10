@@ -21,7 +21,7 @@ clean baseline.
 - Historical performance and benchmark comparisons (complete)
 - Real macroeconomic evidence for the Macro strategy (complete)
 - Configurable strategy weights with explainable scoring (complete)
-- Side-by-side company and report comparison
+- Side-by-side company and report comparison (complete)
 - Exportable research reports
 - Provider caching, rate-limit handling, and broader test coverage
 

@@ -49,6 +49,8 @@ class ResearchReport:
     macro: dict[str, Any] = field(default_factory=dict)
     strategy_weights: dict[str, float] = field(default_factory=dict)
     committee_contributions: list[dict[str, Any]] = field(default_factory=list)
+    committee_score: float = 50.0
+    company_metrics: dict[str, Any] = field(default_factory=dict)
     report_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:

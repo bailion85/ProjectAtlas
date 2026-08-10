@@ -6,7 +6,7 @@ from core.agents import build_strategy_agents
 from core.models.research import ResearchReport, utc_now
 from core.providers.market_provider import MarketDataProvider
 from core.providers.economic_provider import DemoEconomicProvider, EconomicDataProvider
-from core.services.committee_service import CommitteeService, normalize_weights
+from core.services.committee_service import CommitteeService, normalize_weights, score_contributions
 from core.services.report_repository import ReportRepository
 from core.services.performance_service import analyze_performance
 
@@ -17,12 +17,18 @@ class AnalysisService:
         self.repository = repository
         self.economic_provider = economic_provider or DemoEconomicProvider()
 
-    def analyze(self, ticker: str, strategy_weights: dict[str, float] | None = None) -> ResearchReport:
+    def analyze(
+        self,
+        ticker: str,
+        strategy_weights: dict[str, float] | None = None,
+        macro_snapshot: dict | None = None,
+        benchmark_history: list[dict] | None = None,
+    ) -> ResearchReport:
         stock = self.provider.snapshot(ticker)
         news = self.provider.news(ticker)
-        macro = self.economic_provider.snapshot()
+        macro = macro_snapshot or self.economic_provider.snapshot()
         performance, performance_history = analyze_performance(
-            self.provider.history(stock["symbol"]), self.provider.history("SPY")
+            self.provider.history(stock["symbol"]), benchmark_history or self.provider.history("SPY")
         )
         one_year = performance["periods"]["1Y"]
         stock.update({
@@ -51,6 +57,12 @@ class AnalysisService:
             macro=macro,
             strategy_weights=normalized_weights,
             committee_contributions=contributions,
+            committee_score=score_contributions(contributions),
+            company_metrics={key: stock.get(key) for key in (
+                "price", "pe_ratio", "forward_pe", "peg_ratio", "profit_margin",
+                "operating_margin", "return_on_equity", "revenue_growth",
+                "earnings_growth", "beta", "sector", "industry",
+            )},
         )
         report_id = self.repository.save(report)
         return replace(report, report_id=report_id)

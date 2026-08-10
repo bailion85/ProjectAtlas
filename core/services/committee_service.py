@@ -65,3 +65,10 @@ class CommitteeService:
         vote: Vote = "bullish" if normalized_signal >= .2 else "bearish" if normalized_signal <= -.2 else "neutral"
         confidence = round(50 + abs(normalized_signal) * 45)
         return vote, confidence, contributions
+
+
+def score_contributions(contributions: list[dict[str, Any]]) -> float:
+    numerator = sum(item["weighted_signal"] for item in contributions)
+    denominator = sum(item["confidence"] * item["weight"] / 100 for item in contributions)
+    normalized_signal = numerator / denominator if denominator else 0
+    return round((normalized_signal + 1) * 50, 2)

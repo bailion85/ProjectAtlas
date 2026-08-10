@@ -10,6 +10,7 @@ from core.providers.market_provider import AlphaVantageProvider, ProviderError
 from core.providers.economic_provider import DemoEconomicProvider, FredProvider
 from core.services.analysis_service import AnalysisService
 from core.services.committee_service import PRESETS, STRATEGIES, normalize_weights
+from core.services.comparison_service import ComparisonService
 from core.services.report_repository import ReportRepository
 
 
@@ -44,7 +45,7 @@ if macro_provider.name.startswith("Demo"):
 else:
     st.info("This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.")
 
-dashboard, research_tab, history_tab = st.tabs(["Dashboard", "Research", "Report history"])
+dashboard, research_tab, compare_tab, history_tab = st.tabs(["Dashboard", "Research", "Compare", "Report history"])
 
 with dashboard:
     st.subheader("Watchlist")
@@ -189,6 +190,63 @@ with research_tab:
                 st.write(item.thesis)
                 for evidence in item.evidence:
                     st.caption(f"{evidence.label}: {evidence.value} · {evidence.source} · {evidence.observed_at}")
+
+with compare_tab:
+    st.subheader("Compare companies")
+    st.caption("Comparisons use the committee weights configured in the Research tab.")
+    available_tickers = repository.watchlist()
+    if len(available_tickers) < 2:
+        st.info("Add at least two companies to your watchlist before running a comparison.")
+        selected_tickers = []
+    else:
+        selected_tickers = st.multiselect(
+            "Companies",
+            available_tickers,
+            default=available_tickers[:2],
+        )
+        if len(selected_tickers) > 4:
+            st.error("Select no more than four companies.")
+    comparison_ready = 2 <= len(selected_tickers) <= 4 and bool(normalized_preview)
+    if st.button("Run comparison", type="primary", disabled=not comparison_ready):
+        try:
+            with st.spinner("Building comparable research snapshots…"):
+                st.session_state["comparison"] = ComparisonService(analysis, repository).compare(
+                    selected_tickers, strategy_weights
+                )
+        except (ProviderError, ValueError) as exc:
+            st.error(str(exc))
+        except Exception as exc:
+            st.error(f"Comparison failed: {exc}")
+
+    comparison = st.session_state.get("comparison")
+    if comparison:
+        st.markdown(f"#### Comparison #{comparison['comparison_id']}")
+        for warning in comparison["warnings"]:
+            st.warning(warning)
+        st.dataframe(comparison["summary"], hide_index=True, use_container_width=True)
+        st.markdown("#### Normalized performance")
+        st.line_chart(
+            comparison["performance_history"],
+            x="date",
+            y=comparison["tickers"],
+        )
+        st.caption("Each company is indexed to 100 at the beginning of the comparison period.")
+        st.markdown("#### Strategy-by-strategy")
+        st.dataframe(comparison["strategy_table"], hide_index=True, use_container_width=True)
+        st.caption("Committee weights: " + " · ".join(
+            f"{strategy} {weight:.1f}%" for strategy, weight in comparison["strategy_weights"].items()
+        ))
+
+    saved_comparisons = repository.comparison_history()
+    if saved_comparisons:
+        st.markdown("#### Saved comparisons")
+        for saved_row in saved_comparisons:
+            saved = repository.get_comparison(saved_row["id"])
+            if not saved:
+                continue
+            label = f"#{saved_row['id']} · {' vs '.join(saved['tickers'])} · {saved_row['created_at']}"
+            with st.expander(label):
+                st.dataframe(saved["summary"], hide_index=True, use_container_width=True)
 
 with history_tab:
     rows = repository.history()
