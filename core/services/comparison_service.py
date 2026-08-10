@@ -7,6 +7,9 @@ from core.services.analysis_service import AnalysisService
 from core.services.report_repository import ReportRepository
 
 
+COMPARISON_SERVICE_VERSION = 2
+
+
 class ComparisonService:
     def __init__(self, analysis: AnalysisService, repository: ReportRepository):
         self.analysis = analysis

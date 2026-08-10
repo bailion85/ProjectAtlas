@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import os
 
 import streamlit as st
@@ -9,21 +10,40 @@ from dotenv import load_dotenv
 from core.providers.demo_provider import DemoProvider
 from core.providers.market_provider import AlphaVantageProvider, ProviderError
 from core.providers.economic_provider import DemoEconomicProvider, FredProvider
-from core.services.analysis_service import AnalysisService
-from core.services.committee_service import PRESETS, STRATEGIES, normalize_weights
-from core.services.comparison_service import ComparisonService
+import core.models.research as research_model_module
+import core.services.committee_service as committee_service_module
+import core.services.analysis_service as analysis_service_module
+import core.services.comparison_service as comparison_service_module
 import core.services.report_repository as report_repository_module
 
 
-# Streamlit can preserve imported service modules across app-only hot reloads.
-if not hasattr(report_repository_module.ReportRepository, "comparison_history"):
+# Streamlit can preserve imported project modules across app-only hot reloads.
+modules_reloaded = False
+if "committee_score" not in research_model_module.ResearchReport.__dataclass_fields__:
+    research_model_module = importlib.reload(research_model_module)
+    modules_reloaded = True
+if not hasattr(committee_service_module, "score_contributions"):
+    committee_service_module = importlib.reload(committee_service_module)
+    modules_reloaded = True
+if modules_reloaded or not hasattr(report_repository_module.ReportRepository, "comparison_history"):
     report_repository_module = importlib.reload(report_repository_module)
+    modules_reloaded = True
 ReportRepository = report_repository_module.ReportRepository
+if modules_reloaded or "macro_snapshot" not in inspect.signature(analysis_service_module.AnalysisService.analyze).parameters:
+    analysis_service_module = importlib.reload(analysis_service_module)
+    modules_reloaded = True
+AnalysisService = analysis_service_module.AnalysisService
+if modules_reloaded or getattr(comparison_service_module, "COMPARISON_SERVICE_VERSION", 0) < 2:
+    comparison_service_module = importlib.reload(comparison_service_module)
+ComparisonService = comparison_service_module.ComparisonService
+PRESETS = committee_service_module.PRESETS
+STRATEGIES = committee_service_module.STRATEGIES
+normalize_weights = committee_service_module.normalize_weights
 
 
 load_dotenv()
 st.set_page_config(page_title="Project Atlas", page_icon="🧭", layout="wide")
-SERVICE_CACHE_VERSION = "comparison-schema-v2"
+SERVICE_CACHE_VERSION = "comparison-schema-v3"
 
 
 @st.cache_resource
