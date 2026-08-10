@@ -164,13 +164,6 @@ with research_tab:
                 mime="application/pdf",
                 key=f"download-report-{report.ticker}-{getattr(report, 'report_id', 'current')}",
             )
-        st.download_button(
-            "Download PDF report",
-            data=render_report_pdf(report),
-            file_name=f"atlas-{report.ticker.lower()}-report.pdf",
-            mime="application/pdf",
-            key=f"download-report-{report.ticker}-{getattr(report, 'report_id', 'current')}",
-        )
         if contributions:
             st.markdown("#### Why this decision?")
             st.dataframe(
@@ -285,13 +278,6 @@ with compare_tab:
                 mime="application/pdf",
                 key=f"download-comparison-{comparison['comparison_id']}",
             )
-        st.download_button(
-            "Download comparison PDF",
-            data=render_comparison_pdf(comparison),
-            file_name=f"atlas-{'-vs-'.join(ticker.lower() for ticker in comparison['tickers'])}.pdf",
-            mime="application/pdf",
-            key=f"download-comparison-{comparison['comparison_id']}",
-        )
         for warning in comparison["warnings"]:
             st.warning(warning)
         st.dataframe(comparison["summary"], hide_index=True, use_container_width=True)
@@ -326,13 +312,6 @@ with compare_tab:
                         mime="application/pdf",
                         key=f"download-saved-comparison-{saved_row['id']}",
                     )
-                st.download_button(
-                    "Download saved comparison PDF",
-                    data=render_comparison_pdf(saved),
-                    file_name=f"atlas-{'-vs-'.join(ticker.lower() for ticker in saved['tickers'])}.pdf",
-                    mime="application/pdf",
-                    key=f"download-saved-comparison-{saved_row['id']}",
-                )
 
 with history_tab:
     rows = repository.history()
@@ -352,10 +331,3 @@ with history_tab:
                         mime="application/pdf",
                         key=f"download-saved-report-{row['id']}",
                     )
-                st.download_button(
-                    "Download saved report PDF",
-                    data=render_report_pdf(saved),
-                    file_name=f"atlas-{saved.ticker.lower()}-report.pdf",
-                    mime="application/pdf",
-                    key=f"download-saved-report-{row['id']}",
-                )
