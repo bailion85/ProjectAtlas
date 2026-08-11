@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
+
+
+MARKET_PROVIDER_VERSION = 2
 
 class ProviderError(RuntimeError):
     pass
@@ -24,6 +29,14 @@ class MarketDataProvider(ABC):
     @abstractmethod
     def history(self, ticker: str) -> list[dict[str, Any]]: ...
 
+    def daily_history(self, ticker: str) -> list[dict[str, Any]]:
+        """Daily closes used by technical studies.
+
+        Providers without a dedicated daily feed may return their regular history;
+        callers must validate that enough observations are available.
+        """
+        return self.history(ticker)
+
 
 class AlphaVantageProvider(MarketDataProvider):
     """Adapter for Alpha Vantage's documented JSON API."""
@@ -31,11 +44,21 @@ class AlphaVantageProvider(MarketDataProvider):
     name = "Alpha Vantage"
     base_url = "https://www.alphavantage.co/query"
 
-    def __init__(self, api_key: str | None = None, timeout: int = 20):
+    def __init__(
+        self, api_key: str | None = None, timeout: int = 20,
+        min_interval_seconds: float = 1.05,
+        sleeper: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ):
         self.api_key = api_key or os.getenv("ALPHA_VANTAGE_API_KEY")
         if not self.api_key:
             raise ProviderError("ALPHA_VANTAGE_API_KEY is required for live data.")
         self.timeout = timeout
+        self.min_interval_seconds = max(0.0, min_interval_seconds)
+        self.sleeper = sleeper
+        self.clock = clock
+        self._last_request_started: float | None = None
+        self._request_lock = threading.Lock()
 
     def _get(self, **params: str) -> dict[str, Any]:
         try:
@@ -43,13 +66,15 @@ class AlphaVantageProvider(MarketDataProvider):
         except ImportError as exc:
             raise ProviderError("Install the requests package to use Alpha Vantage.") from exc
         try:
-            response = requests.get(
-                self.base_url,
-                params={**params, "apikey": self.api_key},
-                timeout=self.timeout,
-            )
-            response.raise_for_status()
-            payload = response.json()
+            with self._request_lock:
+                self._wait_for_request_slot()
+                response = requests.get(
+                    self.base_url,
+                    params={**params, "apikey": self.api_key},
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
+                payload = response.json()
         except requests.RequestException as exc:
             raise ProviderError(f"Alpha Vantage request failed: {exc}") from exc
         except ValueError as exc:
@@ -60,6 +85,15 @@ class AlphaVantageProvider(MarketDataProvider):
         if message:
             raise ProviderError(str(message))
         return payload
+
+    def _wait_for_request_slot(self) -> None:
+        now = self.clock()
+        if self._last_request_started is not None:
+            delay = self.min_interval_seconds - (now - self._last_request_started)
+            if delay > 0:
+                self.sleeper(delay)
+                now = self.clock()
+        self._last_request_started = now
 
     def search(self, query: str) -> list[dict[str, str]]:
         matches = self._get(function="SYMBOL_SEARCH", keywords=query).get("bestMatches", [])
@@ -140,6 +174,18 @@ class AlphaVantageProvider(MarketDataProvider):
             raise ProviderError(f"No price history found for {ticker.upper()}.")
         return sorted(points, key=lambda point: point["date"])[-61:]
 
+    def daily_history(self, ticker: str) -> list[dict[str, Any]]:
+        series = self._get(function="TIME_SERIES_DAILY", symbol=ticker, outputsize="compact").get(
+            "Time Series (Daily)", {}
+        )
+        points = []
+        for observed_on, values in series.items():
+            close = _float(values.get("4. close"))
+            if close is not None:
+                points.append({"date": observed_on, "close": close})
+        if not points:
+            raise ProviderError(f"No daily price history found for {ticker.upper()}.")
+        return sorted(points, key=lambda point: point["date"])
 
 def _float(value: Any) -> float | None:
     try:

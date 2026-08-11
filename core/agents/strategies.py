@@ -35,6 +35,14 @@ def _evidence(stock: dict[str, Any], label: str) -> Evidence:
             source=f"{indicator['source']} · {indicator['series_id']}",
             observed_at=indicator["observed_at"],
         )
+    if label == "market_environment_score":
+        environment = stock["market_environment"]
+        return Evidence(
+            label="Market environment score",
+            value=f"{environment['score']:.1f}/100 ({environment['label']})",
+            source=environment["event_provider"],
+            observed_at=environment["data_as_of"],
+        )
     return Evidence(
         label=label,
         value=_display(stock.get(label)),
@@ -62,8 +70,11 @@ def _innovation(s: dict[str, Any], news: list[dict[str, Any]]) -> tuple[int, str
 
 
 def _macro(s: dict[str, Any], _: list[dict[str, Any]]) -> tuple[int, str, list[str]]:
-    score, thesis = score_macro_environment(s.get("sector"), s["macro"])
-    return score, thesis, ["macro_inflation", "macro_policy_rate", "macro_treasury_10y", "macro_unemployment", "macro_gdp_growth"]
+    macro_score, thesis = score_macro_environment(s.get("sector"), s["macro"])
+    environment = s.get("market_environment", {})
+    score = round(macro_score * .6 + environment.get("score", macro_score) * .4)
+    thesis += " " + environment.get("buying_context", "")
+    return score, thesis, ["market_environment_score", "macro_inflation", "macro_policy_rate", "macro_treasury_10y", "macro_unemployment", "macro_gdp_growth"]
 
 
 def _quant(s: dict[str, Any], _: list[dict[str, Any]]) -> tuple[int, str, list[str]]:

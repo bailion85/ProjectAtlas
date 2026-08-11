@@ -59,6 +59,20 @@ def render_report_pdf(report: Any) -> bytes:
     story.append(Spacer(1, 10))
     story.append(Paragraph(_text(_get(report, "executive_summary", "")), styles["body"]))
 
+    readiness = _get(report, "entry_readiness", {})
+    if readiness:
+        story.append(_section("Entry readiness", styles))
+        story.append(Paragraph(_text(readiness.get("summary", "")), styles["body"]))
+        readiness_rows = [["Factor", "Score", "Weight", "Evidence"]] + [
+            [item.get("factor", ""), "N/A" if item.get("score") is None else f"{item['score']:.1f}",
+             f"{item.get('weight', 0):.0f}%", item.get("explanation", "")]
+            for item in readiness.get("components", [])
+        ]
+        story.append(_styled_table(readiness_rows, [1.25 * inch, .65 * inch, .6 * inch, 4.15 * inch], header=True, font_size=6.5))
+        story.append(Paragraph(_text("Research horizon: " + readiness.get("research_horizon", "")), styles["small"]))
+        story.append(Paragraph(_text(readiness.get("position_sizing_caution", "")), styles["warning"]))
+        story.append(Paragraph(_text(readiness.get("disclosure", "")), styles["small"]))
+
     contributions = _get(report, "committee_contributions", [])
     if contributions:
         story.extend([_section("Why this decision?", styles), _contribution_table(contributions, styles, document.width)])
@@ -71,9 +85,98 @@ def render_report_pdf(report: Any) -> bytes:
         if chart:
             story.extend([Spacer(1, 6), chart])
 
+    technical = _get(report, "technical", {})
+    technical_history = _get(report, "technical_history", [])
+    if technical:
+        story.append(_section("Golden Cross analyzer", styles))
+        if technical.get("status") == "insufficient_history":
+            story.append(Paragraph(_text(technical.get("message", "Insufficient daily history.")), styles["warning"]))
+        else:
+            short_period = technical.get("short_window", 50)
+            long_period = technical.get("long_window", 200)
+            cross = technical.get("latest_cross") or {}
+            rows = [
+                ["Trend", f"SMA {short_period}", f"SMA {long_period}", f"{short_period}/{long_period} spread", "Latest crossover"],
+                [technical.get("label", ""), f"${technical.get('short_average', technical.get('sma_50', 0)):,.2f}",
+                 f"${technical.get('long_average', technical.get('sma_200', 0)):,.2f}", f"{technical.get('spread_percent', 0):+.2f}%",
+                 f"{cross.get('label', 'None detected')} {cross.get('date', '')}".strip()],
+            ]
+            story.append(_styled_table(rows, [document.width / 5] * 5, header=True))
+            chart = _line_chart(technical_history, ["Price", f"SMA {short_period}", f"SMA {long_period}"], [ticker, f"SMA {short_period}", f"SMA {long_period}"], document.width)
+            if chart:
+                story.extend([Spacer(1, 6), chart])
+            story.append(Paragraph(
+                "A Golden Cross is a technical trend signal, not a prediction or investment recommendation.",
+                styles["small"],
+            ))
+
+    backtest = _get(report, "backtest", {})
+    if backtest:
+        story.append(_section("Golden Cross backtest", styles))
+        if backtest.get("status") == "insufficient_history":
+            story.append(Paragraph(_text(backtest.get("message", "Insufficient history.")), styles["warning"]))
+        else:
+            backtest_rows = [
+                ["Strategy return", "Annualized return", "Buy and hold", "S&P 500", "Max drawdown", "Sharpe", "Trades", "Win rate"],
+                [f"{backtest.get('total_return', 0):+.2f}%", f"{backtest.get('annualized_return', 0):+.2f}%",
+                 f"{backtest.get('buy_hold_return', 0):+.2f}%", f"{backtest.get('benchmark_return', 0):+.2f}%",
+                 f"{backtest.get('max_drawdown', 0):.2f}%", f"{backtest.get('sharpe_ratio', 0):.2f}",
+                 backtest.get("completed_trades", 0), f"{backtest.get('win_rate', 0):.1f}%"],
+            ]
+            story.append(_styled_table(backtest_rows, [document.width / 8] * 8, header=True, font_size=6.5))
+            chart = _line_chart(
+                backtest.get("curve", []), ["Golden Cross strategy", "Buy and hold", "S&P 500"],
+                ["Golden Cross", "Buy and hold", "S&P 500"], document.width,
+            )
+            if chart:
+                story.extend([Spacer(1, 6), chart])
+            story.append(Paragraph(_text(
+                f"{backtest.get('execution', '')}. Transaction cost: {backtest.get('transaction_cost_bps', 0):.0f} bps per transaction. "
+                f"{backtest.get('disclosure', '')}"
+            ), styles["small"]))
+
+    risk = _get(report, "risk", {})
+    if risk:
+        story.append(_section("Risk dashboard", styles))
+        story.append(Paragraph(_text(risk.get("summary", "")), styles["body"]))
+        risk_rows = [["Factor", "Score", "Level", "Weight", "Explanation"]] + [
+            [item.get("factor", ""), "N/A" if item.get("score") is None else f"{item['score']:.1f}",
+             item.get("severity", ""), f"{item.get('weight', 0):.0f}%", item.get("explanation", "")]
+            for item in risk.get("components", [])
+        ]
+        story.append(_styled_table(risk_rows, [1.05 * inch, .55 * inch, .65 * inch, .55 * inch, 3.85 * inch], header=True, font_size=6.5))
+        for flag in risk.get("flags", []):
+            story.append(Paragraph(_text(f"{flag['severity']} - {flag['factor']}: {flag['message']}"), styles["warning"]))
+
     macro = _get(report, "macro", {})
     if macro:
         story.extend([_section("Macro environment", styles), _macro_table(macro, styles, document.width)])
+
+    environment = _get(report, "market_environment", {})
+    if environment:
+        story.extend([_section("Economic events and market environment", styles)])
+        story.append(Paragraph(_text(environment.get("summary", "")), styles["body"]))
+        event_rows = [["Event", "Direction", "Impact", "Confidence", "Duration"]] + [
+            [event.get("title", ""), event.get("expected_direction", ""), event.get("impact", ""),
+             f"{event.get('confidence', 0)}%", event.get("duration", "")]
+            for event in environment.get("events", [])
+        ]
+        story.append(_styled_table(event_rows, [2.75 * inch, 1.05 * inch, .65 * inch, .7 * inch, 1.55 * inch], header=True, font_size=6.5))
+        story.append(Paragraph(_text(
+            f"Event source: {environment.get('event_provider', 'Unknown')}. Macro source: {environment.get('macro_provider', 'Unknown')}."
+        ), styles["small"]))
+
+    catalyst_calendar = _get(report, "catalyst_calendar", {})
+    if catalyst_calendar:
+        story.extend([_section("Earnings and catalyst readiness", styles)])
+        story.append(Paragraph(_text(catalyst_calendar.get("summary", "")), styles["body"]))
+        catalyst_rows = [["Date", "Days", "Event", "Category", "Readiness", "Importance"]] + [
+            [event.get("date", ""), event.get("days_until", ""), event.get("title", ""),
+             event.get("category", ""), event.get("readiness", ""), event.get("importance", "")]
+            for event in catalyst_calendar.get("events", [])
+        ]
+        story.append(_styled_table(catalyst_rows, [.75 * inch, .42 * inch, 2.65 * inch, .8 * inch, .9 * inch, .7 * inch], header=True, font_size=6.5))
+        story.append(Paragraph(_text(f"Calendar source: {catalyst_calendar.get('provider', 'Unknown')}."), styles["small"]))
 
     cases = [
         [Paragraph("Bull case", styles["column_heading"]), Paragraph("Bear case", styles["column_heading"])],
@@ -107,6 +210,18 @@ def render_report_pdf(report: Any) -> bytes:
                 strategy_block.append(_styled_table(rows, [1.25 * inch, 0.9 * inch, 2.35 * inch, 1.4 * inch], header=True))
             strategy_block.append(Spacer(1, 8))
             story.append(KeepTogether(strategy_block))
+
+    configuration = _get(report, "configuration", {})
+    if configuration:
+        technical_config = configuration.get("technical", {})
+        story.append(_section("Configuration and methodology", styles))
+        story.append(Paragraph(_text(
+            f"Configuration version {configuration.get('version', 'Unknown')} | "
+            f"Profile {configuration.get('profile', 'Unknown')} | "
+            f"Committee preset {configuration.get('committee_preset', 'Unknown')} | "
+            f"Moving averages {technical_config.get('short_window', 50)}/{technical_config.get('long_window', 200)} | "
+            f"Backtest cost {configuration.get('backtest', {}).get('transaction_cost_bps', 0)} bps."
+        ), styles["small"]))
 
     story.extend([_section("Sources and disclosures", styles)])
     story.append(Paragraph(_text(
@@ -156,13 +271,20 @@ def render_comparison_pdf(comparison: dict[str, Any]) -> bytes:
     for warning in comparison.get("warnings", []):
         story.append(Paragraph(_text("Data note: " + warning), styles["warning"]))
 
+    environment = comparison.get("market_environment", {})
+    if environment:
+        story.append(Paragraph(_text(
+            f"Market environment: {environment.get('label', 'Unknown')} ({environment.get('score', 0):.1f}/100). "
+            f"{environment.get('buying_context', '')}"
+        ), styles["body"]))
+
     summary = comparison.get("summary", [])
     if summary:
-        columns = ["Rank", "Ticker", "Score", "Vote", "Confidence", "1Y return", "vs S&P 500", "P/E", "Revenue growth", "Profit margin", "Beta", "Strongest factor", "Weakest factor"]
+        columns = ["Rank", "Ticker", "Score", "Entry readiness", "Vote", "Confidence", "Risk score", "Risk level", "Catalyst readiness", "1Y return", "vs S&P 500", "P/E", "Revenue growth", "Profit margin", "Beta", "Strongest factor", "Weakest factor"]
         rows = [[_hp(column, styles) for column in columns]]
         for item in summary:
             rows.append([_p(_format_cell(column, item.get(column)), styles) for column in columns])
-        widths = [0.4, 0.6, 0.6, 0.7, 0.8, 0.75, 0.85, 0.6, 0.95, 0.9, 0.55, 0.95, 0.95]
+        widths = [0.3, 0.45, 0.45, 0.6, 0.5, 0.55, 0.55, 0.55, 0.65, 0.55, 0.6, 0.4, 0.65, 0.65, 0.35, 0.65, 0.65]
         story.extend([_section("Ranked summary", styles), _styled_table(rows, [width * inch for width in widths], header=True, font_size=6.5)])
 
     chart = _line_chart(comparison.get("performance_history", []), tickers, tickers, document.width, height=2.25 * inch)
@@ -188,6 +310,135 @@ def render_comparison_pdf(comparison: dict[str, Any]) -> bytes:
         ))
     document.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
     return buffer.getvalue()
+
+
+def render_watchlist_pdf(ranking: dict[str, Any]) -> bytes:
+    buffer = BytesIO()
+    document = SimpleDocTemplate(
+        buffer, pagesize=landscape(LETTER), rightMargin=.45 * inch, leftMargin=.45 * inch,
+        topMargin=.7 * inch, bottomMargin=.58 * inch, title="Atlas Ranked Watchlist", author="Project Atlas",
+    )
+    styles = _styles()
+    story = [
+        Paragraph("PROJECT ATLAS", styles["eyebrow"]),
+        Paragraph("Ranked Watchlist", styles["title"]),
+        Paragraph(_text(f"Ranking mode: {ranking.get('mode', 'Best opportunity')} | Created {ranking.get('created_at', '')}"), styles["subtitle"]),
+        HRFlowable(width="100%", thickness=2, color=GOLD, spaceBefore=5, spaceAfter=12),
+    ]
+    columns = ["Rank", "Ticker", "Opportunity score", "Entry readiness", "Entry posture", "Committee score", "Vote", "Risk score", "Risk level", "Momentum score", "Technical signal", "Catalyst readiness", "Days to catalyst", "1Y vs S&P 500", "Market environment", "Freshness"]
+    rows = [[_hp(column, styles) for column in columns]] + [
+        [_p(_format_watchlist_cell(column, row.get(column)), styles) for column in columns]
+        for row in ranking.get("rows", [])
+    ]
+    widths = [.3, .42, .62, .62, .75, .62, .42, .5, .55, .58, .72, .68, .48, .62, .68, .48]
+    story.append(_styled_table(rows, [value * inch for value in widths], header=True, font_size=6.4))
+    story.append(_section("Why companies ranked this way", styles))
+    for row in ranking.get("rows", []):
+        story.append(Paragraph(_text(f"#{row['Rank']} {row['Ticker']}: {row['Why']}"), styles["body"]))
+    if ranking.get("missing"):
+        story.append(Paragraph(_text("Missing reports: " + ", ".join(ranking["missing"])), styles["warning"]))
+    story.append(Paragraph(
+        "Rankings combine committee, risk, momentum, and market-environment estimates. They are research aids, not investment advice.",
+        styles["disclaimer"],
+    ))
+    document.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
+    return buffer.getvalue()
+
+
+def render_portfolio_pdf(portfolio: dict[str, Any]) -> bytes:
+    buffer = BytesIO()
+    document = SimpleDocTemplate(
+        buffer, pagesize=landscape(LETTER), rightMargin=.45 * inch, leftMargin=.45 * inch,
+        topMargin=.7 * inch, bottomMargin=.58 * inch, title="Atlas Portfolio Exposure", author="Project Atlas",
+    )
+    styles = _styles()
+    story = [
+        Paragraph("PROJECT ATLAS", styles["eyebrow"]),
+        Paragraph("Portfolio Exposure Analysis", styles["title"]),
+        Paragraph(_text(f"Created {portfolio.get('created_at', '')} | Posture: {portfolio.get('posture', 'Unavailable')}"), styles["subtitle"]),
+        HRFlowable(width="100%", thickness=2, color=GOLD, spaceBefore=5, spaceAfter=12),
+    ]
+    metrics = [
+        ["Weighted risk", "Entry readiness", "Committee score", "Weighted beta", "Covered exposure", "Effective positions"],
+        [
+            _portfolio_metric(portfolio.get("weighted_risk")),
+            _portfolio_metric(portfolio.get("weighted_readiness")),
+            _portfolio_metric(portfolio.get("weighted_committee")),
+            "N/A" if portfolio.get("weighted_beta") is None else f"{portfolio['weighted_beta']:.2f}",
+            f"{portfolio.get('covered_weight', 0):.1f}%",
+            f"{portfolio.get('effective_positions', 0):.1f}",
+        ],
+    ]
+    story.append(_styled_table(metrics, [document.width / 6] * 6, header=True))
+    rows = [["Ticker", "Company", "Weight", "Sector", "Committee", "Vote", "Risk", "Risk level", "Readiness", "Entry posture", "Beta", "Catalyst", "Days", "Freshness"]]
+    for item in portfolio.get("rows", []):
+        rows.append([
+            item.get("Ticker", ""), item.get("Company", ""), f"{item.get('Portfolio weight', 0):.1f}%",
+            item.get("Sector", ""), f"{item.get('Committee score', 0):.1f}", item.get("Vote", ""),
+            f"{item.get('Risk score', 0):.1f}", item.get("Risk level", ""), f"{item.get('Entry readiness', 0):.1f}",
+            item.get("Entry posture", ""), "N/A" if item.get("Beta") is None else f"{item['Beta']:.2f}",
+            item.get("Catalyst readiness", ""), item.get("Days to catalyst", ""), item.get("Freshness", ""),
+        ])
+    widths = [.42, 1.0, .48, .65, .55, .42, .42, .58, .58, .8, .4, .72, .35, .48]
+    story.extend([_section("Holding-level exposure", styles), _styled_table(rows, [value * inch for value in widths], header=True, font_size=6.2)])
+    sector_rows = [["Sector", "Portfolio allocation"]] + [
+        [item["Sector"], f"{item['Allocation']:.1f}%"] for item in portfolio.get("sector_exposure", [])
+    ]
+    if len(sector_rows) > 1:
+        story.extend([_section("Sector exposure", styles), _styled_table(sector_rows, [2.5 * inch, 1.5 * inch], header=True)])
+    if portfolio.get("warnings"):
+        story.append(_section("Exposure flags", styles))
+        for warning in portfolio["warnings"]:
+            story.append(Paragraph(_text(f"{warning['severity']} - {warning['title']}: {warning['message']}"), styles["warning"]))
+    story.append(Paragraph(_text(portfolio.get("disclosure", "")), styles["disclaimer"]))
+    document.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
+    return buffer.getvalue()
+
+
+def render_change_pdf(change: dict[str, Any]) -> bytes:
+    buffer = BytesIO()
+    document = SimpleDocTemplate(
+        buffer, pagesize=LETTER, rightMargin=.55 * inch, leftMargin=.55 * inch,
+        topMargin=.72 * inch, bottomMargin=.62 * inch, title="Atlas Research Change Report", author="Project Atlas",
+    )
+    styles = _styles()
+    story = [
+        Paragraph("PROJECT ATLAS", styles["eyebrow"]),
+        Paragraph(_text(f"{change.get('company', change.get('ticker', ''))} ({change.get('ticker', '')})"), styles["title"]),
+        Paragraph(_text(f"Research Change Report | Thesis {change.get('thesis_status', 'Unavailable')}"), styles["subtitle"]),
+        HRFlowable(width="100%", thickness=2, color=GOLD, spaceBefore=5, spaceAfter=12),
+        Paragraph(_text(change.get("summary", "")), styles["body"]),
+    ]
+    story.append(_styled_table([
+        ["Previous report", "Current report", "Thesis status", "Thesis change score"],
+        [
+            str(change.get("previous_created_at", ""))[:19].replace("T", " ") + " UTC",
+            str(change.get("current_created_at", ""))[:19].replace("T", " ") + " UTC",
+            change.get("thesis_status", ""), f"{change.get('thesis_score', 0):+.1f}",
+        ],
+    ], [document.width / 4] * 4, header=True))
+    metric_rows = [["Metric", "Previous", "Current", "Change", "Impact"]] + [
+        [
+            item["Metric"], f"{item['Previous']:.1f}", f"{item['Current']:.1f}",
+            f"{item['Change']:+.1f} {item['Unit']}", item["Impact"],
+        ] for item in change.get("metrics", [])
+    ]
+    story.extend([_section("Measured changes", styles), _styled_table(metric_rows, [1.55 * inch, 1.0 * inch, 1.0 * inch, 1.15 * inch, 1.2 * inch], header=True)])
+    if change.get("material_changes"):
+        material_rows = [["Category", "Change", "Impact", "Details"]] + [
+            [item["Category"], item["Change"], item["Impact"], item["Details"]]
+            for item in change["material_changes"]
+        ]
+        story.extend([_section("What changed?", styles), _styled_table(material_rows, [1.0 * inch, 1.45 * inch, 1.0 * inch, 3.4 * inch], header=True, font_size=6.8)])
+    story.append(_section("Why Atlas assigned this thesis status", styles))
+    story.extend(_paragraph_list(change.get("reasons", []), styles))
+    story.append(Paragraph(_text(change.get("disclosure", "")), styles["disclaimer"]))
+    document.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
+    return buffer.getvalue()
+
+
+def _portfolio_metric(value: Any) -> str:
+    return "N/A" if value is None else f"{float(value):.1f}/100"
 
 
 def _styles() -> dict[str, ParagraphStyle]:
@@ -341,6 +592,16 @@ def _format_cell(column: str, value: Any) -> str:
         return f"{value}%"
     if isinstance(value, float):
         return f"{value:.2f}"
+    return str(value)
+
+
+def _format_watchlist_cell(column: str, value: Any) -> str:
+    if value is None:
+        return "N/A"
+    if column in {"Opportunity score", "Entry readiness", "Committee score", "Risk score", "Momentum score", "Market environment"}:
+        return f"{float(value):.1f}"
+    if column == "1Y vs S&P 500":
+        return f"{float(value):+.2f} pp"
     return str(value)
 
 

@@ -7,7 +7,7 @@ from core.services.analysis_service import AnalysisService
 from core.services.report_repository import ReportRepository
 
 
-COMPARISON_SERVICE_VERSION = 2
+COMPARISON_SERVICE_VERSION = 7
 
 
 class ComparisonService:
@@ -21,12 +21,20 @@ class ComparisonService:
             raise ValueError("Select between two and four unique companies.")
         macro_snapshot = self.analysis.economic_provider.snapshot()
         benchmark_history = self.analysis.provider.history("SPY")
+        environment = self.analysis.event_provider.snapshot()
+        from core.services.market_regime_service import analyze_market_environment
+        market_environment = analyze_market_environment(environment, macro_snapshot)
+        calendar_snapshot = self.analysis.calendar_provider.snapshot()
+        benchmark_daily_history = self.analysis.provider.daily_history("SPY")
         reports = [
             self.analysis.analyze(
                 symbol,
                 strategy_weights,
                 macro_snapshot=macro_snapshot,
                 benchmark_history=benchmark_history,
+                market_environment=market_environment,
+                calendar_snapshot=calendar_snapshot,
+                benchmark_daily_history=benchmark_daily_history,
             )
             for symbol in symbols
         ]
@@ -50,6 +58,12 @@ def _build_comparison(reports: list[ResearchReport]) -> dict[str, Any]:
             "Score": report.committee_score,
             "Vote": report.committee_vote.title(),
             "Confidence": report.committee_confidence,
+            "Risk score": report.risk.get("score"),
+            "Risk level": report.risk.get("severity"),
+            "Entry readiness": report.entry_readiness.get("score"),
+            "Entry posture": report.entry_readiness.get("posture"),
+            "Catalyst readiness": report.catalyst_calendar.get("readiness"),
+            "Next catalyst": (report.catalyst_calendar.get("next_event") or {}).get("title"),
             "1Y return": one_year.get("company"),
             "vs S&P 500": one_year.get("relative"),
             "P/E": metrics.get("pe_ratio"),
@@ -95,6 +109,7 @@ def _build_comparison(reports: list[ResearchReport]) -> dict[str, Any]:
         "performance_history": chart,
         "warnings": warnings,
         "reports": [report.to_dict() for report in reports],
+        "market_environment": reports[0].market_environment,
     }
 
 

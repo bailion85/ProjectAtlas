@@ -18,6 +18,16 @@ Project Atlas is an **analysis-only** investment research application. It has no
 - Persistent provider caching, bounded retries, stale fallback, and request-status diagnostics
 - Documented Alpha Vantage integration for legitimate market/fundamental/news data
 - Clearly labeled offline demo mode
+- Analysis-only portfolio allocations with concentration, weighted risk, entry-readiness, sector, catalyst, and PDF reporting
+- Report-to-report research change tracking with auditable thesis status and PDF export
+- Scheduled watchlist and portfolio research refreshes with retry limits, automatic alert scans, and run history
+- Opt-in live-data readiness diagnostics for Alpha Vantage, FRED, field coverage, freshness, cache behavior, and technical-history requirements
+- Opt-in live-data readiness diagnostics for Alpha Vantage, FRED, field coverage, freshness, cache behavior, and technical-history requirements
+- Scheduled watchlist and portfolio research refreshes with retry limits, automatic alert scans, and run history
+- Report-to-report research change tracking with auditable thesis status and PDF export
+- Analysis-only portfolio allocations with concentration, weighted risk, entry-readiness, sector, catalyst, and PDF reporting
+- Analysis-only portfolio allocations with concentration, weighted risk, entry-readiness, sector, catalyst, and PDF reporting
+- Analysis-only portfolio allocations with concentration, weighted risk, entry-readiness, sector, catalyst, and PDF reporting
 
 ## Run locally
 
@@ -29,7 +39,7 @@ Project Atlas is an **analysis-only** investment research application. It has no
 
 Atlas caches provider responses in `data/provider_cache.db`. Use the Data status panel to inspect request activity or force a fresh provider request.
 
-Demo mode contains only AAPL, MSFT, NVDA, GOOGL, and AMZN. Its values are illustrative, not live.
+Demo mode contains only AAPL, MSFT, NVDA, GOOG, GOOGL, and AMZN. Its values are illustrative, not live.
 
 ## Data policy
 

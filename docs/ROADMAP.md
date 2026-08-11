@@ -27,7 +27,13 @@ clean baseline.
 
 ## Milestone 3 — Decision support
 
-- Portfolio exposure analysis without transaction execution
+- Portfolio exposure analysis without transaction execution (complete)
 - Thesis tracking and catalyst monitoring
-- Report-to-report change detection
-- Watchlist alerts and scheduled research refreshes
+- Report-to-report change detection (complete)
+- Watchlist alerts and scheduled research refreshes (complete)
+
+## Milestone 4 â€” Live-data readiness
+
+- Manual Alpha Vantage endpoint, coverage, freshness, cache, retry, and fallback diagnostics (complete)
+- Manual FRED coverage and staleness diagnostics (complete)
+- Explicit 200-day technical-history readiness gate and safe provider-switch instructions (complete)

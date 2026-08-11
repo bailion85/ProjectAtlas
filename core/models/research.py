@@ -51,6 +51,14 @@ class ResearchReport:
     committee_contributions: list[dict[str, Any]] = field(default_factory=list)
     committee_score: float = 50.0
     company_metrics: dict[str, Any] = field(default_factory=dict)
+    technical: dict[str, Any] = field(default_factory=dict)
+    technical_history: list[dict[str, Any]] = field(default_factory=list)
+    risk: dict[str, Any] = field(default_factory=dict)
+    market_environment: dict[str, Any] = field(default_factory=dict)
+    catalyst_calendar: dict[str, Any] = field(default_factory=dict)
+    backtest: dict[str, Any] = field(default_factory=dict)
+    entry_readiness: dict[str, Any] = field(default_factory=dict)
+    configuration: dict[str, Any] = field(default_factory=dict)
     report_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:

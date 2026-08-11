@@ -9,7 +9,7 @@ from core.providers.market_provider import MarketDataProvider, ProviderError
 from core.services.provider_cache import ProviderCache
 
 
-MARKET_TTLS = {"search": 86400, "snapshot": 900, "news": 900, "history": 43200}
+MARKET_TTLS = {"search": 86400, "snapshot": 900, "news": 900, "history": 43200, "daily_history": 43200}
 MACRO_TTLS = {"snapshot": 21600}
 
 
@@ -112,6 +112,12 @@ class CachedMarketDataProvider(_CachedProvider, MarketDataProvider):
     def history(self, ticker: str) -> list[dict[str, Any]]:
         symbol = ticker.strip().upper()
         return self._cached("history", {"ticker": symbol}, lambda: self.delegate.history(symbol))
+
+    def daily_history(self, ticker: str) -> list[dict[str, Any]]:
+        symbol = ticker.strip().upper()
+        return self._cached(
+            "daily_history", {"ticker": symbol}, lambda: self.delegate.daily_history(symbol)
+        )
 
 
 class CachedEconomicDataProvider(_CachedProvider, EconomicDataProvider):
