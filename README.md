@@ -15,6 +15,7 @@ Project Atlas is an **analysis-only** investment research application. It has no
 - Configurable strategy weights, committee presets, and weighted decision contributions
 - Saved two-to-four company comparisons with rankings and normalized performance
 - Downloadable PDF exports for current and historical reports and comparisons
+- Persistent provider caching, bounded retries, stale fallback, and request-status diagnostics
 - Documented Alpha Vantage integration for legitimate market/fundamental/news data
 - Clearly labeled offline demo mode
 
@@ -25,6 +26,8 @@ Project Atlas is an **analysis-only** investment research application. It has no
 3. Leave `ATLAS_DATA_PROVIDER=demo` for the credential-free sample, or set it to `alpha_vantage` and add your Alpha Vantage API key.
 4. Leave `ATLAS_MACRO_PROVIDER=demo`, or set it to `fred` and add a free FRED API key.
 5. Run `streamlit run app.py`.
+
+Atlas caches provider responses in `data/provider_cache.db`. Use the Data status panel to inspect request activity or force a fresh provider request.
 
 Demo mode contains only AAPL, MSFT, NVDA, GOOGL, and AMZN. Its values are illustrative, not live.
 

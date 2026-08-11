@@ -23,7 +23,7 @@ clean baseline.
 - Configurable strategy weights with explainable scoring (complete)
 - Side-by-side company and report comparison (complete)
 - Exportable research and comparison PDF reports (complete)
-- Provider caching, rate-limit handling, and broader test coverage
+- Provider caching, rate-limit handling, and broader test coverage (complete)
 
 ## Milestone 3 — Decision support
 

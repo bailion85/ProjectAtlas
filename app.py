@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 from core.providers.demo_provider import DemoProvider
 from core.providers.market_provider import AlphaVantageProvider, ProviderError
 from core.providers.economic_provider import DemoEconomicProvider, FredProvider
+from core.providers.cached_provider import CachedEconomicDataProvider, CachedMarketDataProvider
+from core.services.provider_cache import ProviderCache
 import core.models.research as research_model_module
 import core.services.committee_service as committee_service_module
 import core.services.analysis_service as analysis_service_module
@@ -23,7 +25,6 @@ except ModuleNotFoundError as exc:
         raise
     render_comparison_pdf = None
     render_report_pdf = None
-from core.services.pdf_service import render_comparison_pdf, render_report_pdf
 
 
 # Streamlit can preserve imported project modules across app-only hot reloads.
@@ -52,7 +53,7 @@ normalize_weights = committee_service_module.normalize_weights
 
 load_dotenv()
 st.set_page_config(page_title="Project Atlas", page_icon="🧭", layout="wide")
-SERVICE_CACHE_VERSION = "comparison-schema-v3"
+SERVICE_CACHE_VERSION = "provider-cache-v1"
 
 
 @st.cache_resource
@@ -60,18 +61,21 @@ def services(cache_version: str):
     # Changing this key refreshes long-lived objects after service or database upgrades.
     _ = cache_version
     provider_name = os.getenv("ATLAS_DATA_PROVIDER", "demo").lower()
-    provider = AlphaVantageProvider() if provider_name == "alpha_vantage" else DemoProvider()
+    base_provider = AlphaVantageProvider() if provider_name == "alpha_vantage" else DemoProvider()
     macro_provider_name = os.getenv("ATLAS_MACRO_PROVIDER", "demo").lower()
-    macro_provider = FredProvider() if macro_provider_name == "fred" else DemoEconomicProvider()
+    base_macro_provider = FredProvider() if macro_provider_name == "fred" else DemoEconomicProvider()
+    cache = ProviderCache(os.getenv("ATLAS_CACHE_PATH", "data/provider_cache.db"))
+    provider = CachedMarketDataProvider(base_provider, cache)
+    macro_provider = CachedEconomicDataProvider(base_macro_provider, cache)
     repository = ReportRepository(os.getenv("ATLAS_DATABASE_PATH", "data/atlas.db"))
-    return provider, macro_provider, repository, AnalysisService(provider, repository, macro_provider)
+    return provider, macro_provider, cache, repository, AnalysisService(provider, repository, macro_provider)
 
 
 st.title("Project Atlas")
 st.caption("Analysis-only investment research — no trading or brokerage connectivity")
 
 try:
-    provider, macro_provider, repository, analysis = services(SERVICE_CACHE_VERSION)
+    provider, macro_provider, provider_cache, repository, analysis = services(SERVICE_CACHE_VERSION)
 except ProviderError as exc:
     st.error(f"Data provider configuration error: {exc}")
     st.info("Set ATLAS_DATA_PROVIDER=demo to use Atlas without a live-data API key.")
@@ -331,3 +335,26 @@ with history_tab:
                         mime="application/pdf",
                         key=f"download-saved-report-{row['id']}",
                     )
+
+with st.expander("Data status"):
+    status_rows = []
+    for status in (provider.status(), macro_provider.status()):
+        age = status["last_age_seconds"]
+        status_rows.append({
+            "Provider": status["provider"],
+            "Last operation": status["last_operation"],
+            "Last source": status["last_source"],
+            "Cache age": "-" if age is None else f"{age:.0f}s",
+            "Cache entries": status["cache_entries"],
+            "Cache hits": status["cache_hits"],
+            "Live requests": status["live_requests"],
+            "Retries": status["retries"],
+            "Stale fallbacks": status["stale_fallbacks"],
+        })
+    st.dataframe(status_rows, hide_index=True, use_container_width=True)
+    if st.button("Refresh provider cache"):
+        provider_cache.clear()
+        provider.reset_status()
+        macro_provider.reset_status()
+        st.success("Provider cache cleared. The next analysis will request fresh data.")
+        st.rerun()

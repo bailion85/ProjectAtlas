@@ -1,9 +1,13 @@
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+import time
 from unittest.mock import patch
 
 from core.providers.demo_provider import DemoProvider
 from core.providers.market_provider import ProviderError
 from core.providers.economic_provider import DemoEconomicProvider, FredProvider
+from core.providers.cached_provider import CachedMarketDataProvider
+from core.providers.market_provider import MarketDataProvider
 from core.models.research import AgentAssessment
 from core.services.analysis_service import AnalysisService
 from core.services.report_repository import ReportRepository
@@ -12,6 +16,7 @@ from core.services.macro_service import score_macro_environment
 from core.services.committee_service import CommitteeService, PRESETS, normalize_weights
 from core.services.comparison_service import ComparisonService
 from core.services.pdf_service import render_comparison_pdf, render_report_pdf
+from core.services.provider_cache import ProviderCache
 
 
 def test_demo_search():
@@ -212,3 +217,93 @@ def test_comparison_pdf_is_generated(tmp_path: Path):
     assert pdf.startswith(b"%PDF-")
     assert pdf.rstrip().endswith(b"%%EOF")
     assert len(pdf) > 4000
+
+
+class _CountingMarketProvider(MarketDataProvider):
+    name = "Counting provider"
+
+    def __init__(self, failures: int = 0, error_message: str = "request failed: temporary connection"):
+        self.calls = 0
+        self.failures = failures
+        self.error_message = error_message
+
+    def search(self, query: str):
+        return [{"symbol": query.upper(), "name": query}]
+
+    def snapshot(self, ticker: str):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise ProviderError(self.error_message)
+        return {"symbol": ticker, "price": 100 + self.calls}
+
+    def news(self, ticker: str):
+        return []
+
+    def history(self, ticker: str):
+        return [{"date": "2026-01-01", "close": 100}, {"date": "2026-02-01", "close": 101}]
+
+
+def test_provider_cache_reuses_and_persists_responses(tmp_path: Path):
+    cache = ProviderCache(tmp_path / "cache.db")
+    delegate = _CountingMarketProvider()
+    provider = CachedMarketDataProvider(delegate, cache)
+    first = provider.snapshot("aapl")
+    second = provider.snapshot("AAPL")
+    restarted_provider = CachedMarketDataProvider(_CountingMarketProvider(), ProviderCache(tmp_path / "cache.db"))
+    third = restarted_provider.snapshot("AAPL")
+    assert first == second == third
+    assert delegate.calls == 1
+    assert provider.status()["cache_hits"] == 1
+    assert restarted_provider.status()["cache_hits"] == 1
+
+
+def test_expired_cache_is_used_when_provider_fails(tmp_path: Path):
+    now = [100.0]
+    cache = ProviderCache(tmp_path / "cache.db", clock=lambda: now[0])
+    delegate = _CountingMarketProvider()
+    provider = CachedMarketDataProvider(delegate, cache, ttls={"search": 1, "snapshot": 1, "news": 1, "history": 1}, max_attempts=1)
+    expected = provider.snapshot("MSFT")
+    now[0] += 2
+    delegate.failures = 99
+    assert provider.snapshot("MSFT") == expected
+    assert provider.status()["stale_fallbacks"] == 1
+
+
+def test_temporary_failures_use_bounded_retries(tmp_path: Path):
+    waits = []
+    delegate = _CountingMarketProvider(failures=2)
+    provider = CachedMarketDataProvider(delegate, ProviderCache(tmp_path / "cache.db"), max_attempts=3, sleeper=waits.append)
+    assert provider.snapshot("NVDA")["symbol"] == "NVDA"
+    assert delegate.calls == 3
+    assert waits == [0.25, 0.75]
+    assert provider.status()["retries"] == 2
+
+
+def test_rate_limits_do_not_retry_without_stale_data(tmp_path: Path):
+    delegate = _CountingMarketProvider(failures=5, error_message="429 rate limit reached")
+    provider = CachedMarketDataProvider(delegate, ProviderCache(tmp_path / "cache.db"), max_attempts=3, sleeper=lambda _: None)
+    try:
+        provider.snapshot("GOOGL")
+    except ProviderError as exc:
+        assert "rate limit" in str(exc)
+    else:
+        raise AssertionError("Expected a rate-limit failure")
+    assert delegate.calls == 1
+    assert provider.status()["retries"] == 0
+
+
+def test_concurrent_duplicate_requests_are_coalesced(tmp_path: Path):
+    delegate = _CountingMarketProvider()
+    original_snapshot = delegate.snapshot
+
+    def slow_snapshot(ticker: str):
+        time.sleep(0.05)
+        return original_snapshot(ticker)
+
+    delegate.snapshot = slow_snapshot
+    provider = CachedMarketDataProvider(delegate, ProviderCache(tmp_path / "cache.db"))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(provider.snapshot, ["AAPL"] * 4))
+    assert all(result == results[0] for result in results)
+    assert delegate.calls == 1
+    assert provider.status()["cache_hits"] == 3
