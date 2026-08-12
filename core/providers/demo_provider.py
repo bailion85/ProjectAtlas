@@ -31,6 +31,15 @@ class DemoProvider(MarketDataProvider):
             if query in symbol.lower() or query in values[0].lower()
         ]
 
+    def market_movers(self) -> dict[str, Any]:
+        groups = ["Top gainer", "Most active", "Top loser", "Most active", "Top gainer", "Top loser"]
+        changes = [4.8, 2.1, -3.6, 1.2, 3.4, -2.2]
+        return {"provider": self.name, "last_updated": date.today().isoformat(), "rows": [
+            {"ticker": symbol, "group": group, "price": values[3], "change_amount": None,
+             "change_percentage": change, "volume": 10_000_000 - index * 700_000}
+            for index, ((symbol, values), group, change) in enumerate(zip(_COMPANIES.items(), groups, changes))
+        ]}
+
     def snapshot(self, ticker: str) -> dict[str, Any]:
         symbol = ticker.upper()
         if symbol not in _COMPANIES:

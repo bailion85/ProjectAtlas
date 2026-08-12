@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 
-MARKET_PROVIDER_VERSION = 2
+MARKET_PROVIDER_VERSION = 5
 
 class ProviderError(RuntimeError):
     pass
@@ -49,6 +49,9 @@ class AlphaVantageProvider(MarketDataProvider):
         min_interval_seconds: float = 1.05,
         sleeper: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        usage_store: Any | None = None,
+        daily_limit: int | None = None,
+        daily_reserve: int | None = None,
     ):
         self.api_key = api_key or os.getenv("ALPHA_VANTAGE_API_KEY")
         if not self.api_key:
@@ -59,6 +62,11 @@ class AlphaVantageProvider(MarketDataProvider):
         self.clock = clock
         self._last_request_started: float | None = None
         self._request_lock = threading.Lock()
+        self.usage_store = usage_store
+        self.daily_limit = int(daily_limit if daily_limit is not None else os.getenv("ALPHA_VANTAGE_DAILY_LIMIT", "25"))
+        self.daily_reserve = int(daily_reserve if daily_reserve is not None else os.getenv("ALPHA_VANTAGE_DAILY_RESERVE", "2"))
+        outputsize = os.getenv("ALPHA_VANTAGE_DAILY_OUTPUTSIZE", "compact").lower()
+        self.daily_outputsize = outputsize if outputsize in {"compact", "full"} else "compact"
 
     def _get(self, **params: str) -> dict[str, Any]:
         try:
@@ -67,6 +75,14 @@ class AlphaVantageProvider(MarketDataProvider):
             raise ProviderError("Install the requests package to use Alpha Vantage.") from exc
         try:
             with self._request_lock:
+                if self.usage_store and not self.usage_store.claim_request(
+                    "alpha_vantage", self.daily_limit, self.daily_reserve
+                ):
+                    usage = self.usage_status()
+                    raise ProviderError(
+                        "Atlas daily Alpha Vantage request budget is exhausted "
+                        f"({usage['used']}/{usage['usable_limit']} usable requests). Try again after the UTC reset."
+                    )
                 self._wait_for_request_slot()
                 response = requests.get(
                     self.base_url,
@@ -95,6 +111,15 @@ class AlphaVantageProvider(MarketDataProvider):
                 now = self.clock()
         self._last_request_started = now
 
+    def usage_status(self) -> dict[str, Any]:
+        if not self.usage_store:
+            return {
+                "daily_limit": self.daily_limit, "reserve": self.daily_reserve,
+                "usable_limit": max(0, self.daily_limit - self.daily_reserve), "used": 0,
+                "remaining": max(0, self.daily_limit - self.daily_reserve),
+            }
+        return self.usage_store.usage_status("alpha_vantage", self.daily_limit, self.daily_reserve)
+
     def search(self, query: str) -> list[dict[str, str]]:
         matches = self._get(function="SYMBOL_SEARCH", keywords=query).get("bestMatches", [])
         return [
@@ -102,9 +127,35 @@ class AlphaVantageProvider(MarketDataProvider):
             for item in matches[:10]
         ]
 
+    def market_movers(self) -> dict[str, Any]:
+        payload = self._get(function="TOP_GAINERS_LOSERS")
+        def rows(key: str, group: str) -> list[dict[str, Any]]:
+            return [{
+                "ticker": str(item.get("ticker", "")).upper(), "group": group,
+                "price": _float(item.get("price")), "change_amount": _float(item.get("change_amount")),
+                "change_percentage": _float(str(item.get("change_percentage", "")).rstrip("%")),
+                "volume": int(float(item.get("volume", 0) or 0)),
+            } for item in payload.get(key, [])]
+        return {
+            "provider": self.name, "last_updated": payload.get("last_updated"),
+            "rows": rows("top_gainers", "Top gainer") + rows("most_actively_traded", "Most active")
+                    + rows("top_losers", "Top loser"),
+        }
+
     def snapshot(self, ticker: str) -> dict[str, Any]:
         overview = self._get(function="OVERVIEW", symbol=ticker)
         quote = self._get(function="GLOBAL_QUOTE", symbol=ticker).get("Global Quote", {})
+        result = self._overview_snapshot(ticker, overview)
+        result.update({
+            "price": _float(quote.get("05. price")),
+            "change_percent": _float(str(quote.get("10. change percent", "")).rstrip("%")),
+        })
+        return result
+
+    def fundamentals(self, ticker: str) -> dict[str, Any]:
+        return self._overview_snapshot(ticker, self._get(function="OVERVIEW", symbol=ticker))
+
+    def _overview_snapshot(self, ticker: str, overview: dict[str, Any]) -> dict[str, Any]:
         if not overview:
             raise ProviderError(f"No company overview found for {ticker}.")
         now = datetime.now(timezone.utc).isoformat()
@@ -125,8 +176,8 @@ class AlphaVantageProvider(MarketDataProvider):
             "description": overview.get("Description", ""),
             "sector": overview.get("Sector"),
             "industry": overview.get("Industry"),
-            "price": _float(quote.get("05. price")),
-            "change_percent": _float(str(quote.get("10. change percent", "")).rstrip("%")),
+            "price": None,
+            "change_percent": None,
             "market_cap": number("MarketCapitalization"),
             "pe_ratio": number("PERatio"),
             "forward_pe": number("ForwardPE"),
@@ -146,6 +197,10 @@ class AlphaVantageProvider(MarketDataProvider):
             "observed_at": now,
             "source": self.name,
         }
+
+    @staticmethod
+    def quota_cost(operation: str) -> int:
+        return {"search": 1, "market_movers": 1, "snapshot": 2, "news": 1, "history": 1, "daily_history": 1}.get(operation, 0)
 
     def news(self, ticker: str) -> list[dict[str, Any]]:
         feed = self._get(function="NEWS_SENTIMENT", tickers=ticker, limit="10").get("feed", [])
@@ -175,7 +230,7 @@ class AlphaVantageProvider(MarketDataProvider):
         return sorted(points, key=lambda point: point["date"])[-61:]
 
     def daily_history(self, ticker: str) -> list[dict[str, Any]]:
-        series = self._get(function="TIME_SERIES_DAILY", symbol=ticker, outputsize="compact").get(
+        series = self._get(function="TIME_SERIES_DAILY", symbol=ticker, outputsize=self.daily_outputsize).get(
             "Time Series (Daily)", {}
         )
         points = []

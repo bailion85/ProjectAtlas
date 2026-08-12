@@ -7,7 +7,7 @@ from core.services.analysis_service import AnalysisService
 from core.services.report_repository import ReportRepository
 
 
-COMPARISON_SERVICE_VERSION = 7
+COMPARISON_SERVICE_VERSION = 8
 
 
 class ComparisonService:
@@ -38,12 +38,15 @@ class ComparisonService:
             )
             for symbol in symbols
         ]
-        comparison = _build_comparison(reports)
+        health = {item["ticker"]: item for item in self.repository.latest_financial_health()}
+        comparison = _build_comparison(reports, health)
         comparison["comparison_id"] = self.repository.save_comparison(comparison)
         return comparison
 
 
-def _build_comparison(reports: list[ResearchReport]) -> dict[str, Any]:
+def _build_comparison(
+    reports: list[ResearchReport], financial_health: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     summary = []
     for report in reports:
         periods = report.performance.get("periods", {})
@@ -51,6 +54,7 @@ def _build_comparison(reports: list[ResearchReport]) -> dict[str, Any]:
         strongest = max(report.committee_contributions, key=lambda item: item["weighted_signal"])
         weakest = min(report.committee_contributions, key=lambda item: item["weighted_signal"])
         metrics = report.company_metrics
+        health = (financial_health or {}).get(report.ticker, {})
         summary.append({
             "Rank": 0,
             "Ticker": report.ticker,
@@ -70,6 +74,9 @@ def _build_comparison(reports: list[ResearchReport]) -> dict[str, Any]:
             "Revenue growth": _percent(metrics.get("revenue_growth")),
             "Profit margin": _percent(metrics.get("profit_margin")),
             "Beta": metrics.get("beta"),
+            "SEC health score": health.get("score"),
+            "SEC health posture": health.get("posture", "Not analyzed"),
+            "SEC metric coverage": health.get("coverage"),
             "Strongest factor": strongest["strategy"],
             "Weakest factor": weakest["strategy"],
             "Data as of": report.data_as_of,

@@ -19,6 +19,9 @@ ALERT_TYPES = {
     "backtest": "Backtest threshold",
     "readiness": "Entry-readiness change",
     "stale": "Stale report",
+    "financial_health": "SEC financial-health change",
+    "evidence_trust": "Evidence trust/freshness",
+    "discovery": "Opportunity discovery change",
 }
 
 DEFAULT_RULE = {
@@ -136,7 +139,9 @@ class AlertService:
                                  f"readiness:{ticker}:{report_anchor}:{readiness}"))
 
         next_event = current.catalyst_calendar.get("next_event") or {}
-        if ("catalyst" in enabled and next_event and
+        if ("catalyst" in enabled and next_event and current.catalyst_calendar.get("live") is True and
+                not current.catalyst_calendar.get("stale") and next_event.get("source_live") is True and
+                not next_event.get("source_stale") and
                 int(next_event.get("days_until", 999)) <= int(rule["catalyst_days"]) and
                 current.catalyst_calendar.get("readiness") in {"Elevated", "Event imminent"}):
             severity = "Critical" if current.catalyst_calendar.get("readiness") == "Event imminent" else "High"

@@ -395,6 +395,147 @@ def render_portfolio_pdf(portfolio: dict[str, Any]) -> bytes:
     return buffer.getvalue()
 
 
+def render_portfolio_action_plan_pdf(plan: dict[str, Any]) -> bytes:
+    buffer = BytesIO()
+    document = SimpleDocTemplate(
+        buffer, pagesize=landscape(LETTER), rightMargin=.45 * inch, leftMargin=.45 * inch,
+        topMargin=.7 * inch, bottomMargin=.58 * inch, title="Atlas Portfolio Action Plan", author="Project Atlas",
+    )
+    styles = _styles()
+    story = [
+        Paragraph("PROJECT ATLAS", styles["eyebrow"]),
+        Paragraph("Portfolio Action Plan", styles["title"]),
+        Paragraph(_text(f"Weekly review created {plan.get('created_at', '')}"), styles["subtitle"]),
+        HRFlowable(width="100%", thickness=2, color=GOLD, spaceBefore=5, spaceAfter=12),
+    ]
+    counts = plan.get("counts", {})
+    metrics = [
+        ["Portfolio posture", "Do now", "Review soon", "Monitor", "Evidence trust", "Weighted risk"],
+        [plan.get("portfolio_posture", "Unavailable"), counts.get("Do now", 0), counts.get("Review soon", 0),
+         counts.get("Monitor", 0), _score(plan.get("portfolio_trust")), _portfolio_metric(plan.get("weighted_risk"))],
+    ]
+    story.append(_styled_table(metrics, [document.width / 6] * 6, header=True))
+    story.append(Paragraph(_text(plan.get("summary", "")), styles["body"]))
+    columns = ["Priority", "Ticker", "Action review", "Weight", "Ceiling", "View", "Trust", "Risk", "Why", "Next step"]
+    rows = [[_hp(column, styles) for column in columns]]
+    for item in plan.get("rows", []):
+        rows.append([_p(value, styles) for value in [
+            item.get("Priority", ""), item.get("Ticker", ""), item.get("Action review", ""),
+            _percent_value(item.get("Current weight")), _percent_value(item.get("Saved ceiling")),
+            item.get("Beginner view", ""), item.get("Evidence trust", ""), _score(item.get("Risk score")),
+            item.get("Why", ""), item.get("Next step", ""),
+        ]])
+    widths = [.65, .5, .95, .48, .55, .72, .52, .6, 2.1, 2.3]
+    story.extend([_section("Prioritized holding review", styles), _styled_table(
+        rows, [value * inch for value in widths], header=True, font_size=6.2,
+    )])
+    if plan.get("exposure_warnings"):
+        story.append(_section("Portfolio exposure flags", styles))
+        for warning in plan["exposure_warnings"]:
+            story.append(Paragraph(_text(
+                f"{warning.get('severity')} - {warning.get('title')}: {warning.get('message')}"
+            ), styles["warning"]))
+    story.append(Paragraph(_text(plan.get("disclosure", "")), styles["disclaimer"]))
+    document.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
+    return buffer.getvalue()
+
+
+def render_accuracy_report_pdf(summary: dict[str, Any]) -> bytes:
+    buffer = BytesIO()
+    document = SimpleDocTemplate(
+        buffer, pagesize=landscape(LETTER), rightMargin=.45 * inch, leftMargin=.45 * inch,
+        topMargin=.7 * inch, bottomMargin=.58 * inch, title="Atlas Decision Accuracy Report", author="Project Atlas",
+    )
+    styles = _styles()
+    story = [
+        Paragraph("PROJECT ATLAS", styles["eyebrow"]),
+        Paragraph("Decision Accuracy Report", styles["title"]),
+        Paragraph(_text(f"{summary.get('horizon_days', 30)}-day outcomes | Created {summary.get('created_at', '')}"), styles["subtitle"]),
+        HRFlowable(width="100%", thickness=2, color=GOLD, spaceBefore=5, spaceAfter=12),
+    ]
+    metrics = [
+        ["Model capacity", "Snapshots", "Directional outcomes", "Win rate", "Average return", "Vs S&P 500", "Worst drawdown"],
+        [summary.get("capacity", "Insufficient"), summary.get("snapshots", 0), summary.get("completed_directional", 0),
+         _percent_value(summary.get("win_rate")), _signed_percent(summary.get("average_return")),
+         _signed_percent(summary.get("average_relative_return")), _signed_percent(summary.get("worst_drawdown"))],
+    ]
+    story.append(_styled_table(metrics, [document.width / 7] * 7, header=True))
+    story.append(Paragraph(_text(summary.get("summary", "")), styles["body"]))
+    columns = ["Ticker", "Label", "Confidence", "Trust", "Regime", "Captured", "Company return", "S&P 500 return", "Relative return", "Drawdown", "Result"]
+    rows = [[_hp(column, styles) for column in columns]]
+    for item in summary.get("rows", []):
+        rows.append([_p(value, styles) for value in [
+            item.get("Ticker", ""), item.get("Label", ""), item.get("Confidence", ""), item.get("Trust", ""),
+            item.get("Regime", ""), str(item.get("Captured", ""))[:10], _signed_percent(item.get("Company return")),
+            _signed_percent(item.get("S&P 500 return")), _signed_percent(item.get("Relative return")),
+            _signed_percent(item.get("Max drawdown")), item.get("Result", ""),
+        ]])
+    story.extend([_section("Label outcomes", styles), _styled_table(
+        rows, [.65 * inch, 1.2 * inch, .75 * inch, .7 * inch, 1.0 * inch, .85 * inch,
+               1.0 * inch, 1.0 * inch, 1.0 * inch, .75 * inch, .9 * inch], header=True, font_size=6.2,
+    )])
+    groups = summary.get("groups", [])
+    if groups:
+        group_rows = [["Dimension", "Group", "Completed", "Win rate", "Average relative return"]] + [
+            [item.get("Dimension"), item.get("Group"), item.get("Completed"),
+             _percent_value(item.get("Win rate")), _signed_percent(item.get("Average relative return"))]
+            for item in groups
+        ]
+        story.extend([_section("Breakdown", styles), _styled_table(
+            group_rows, [1.2 * inch, 2.0 * inch, .8 * inch, .8 * inch, 1.4 * inch], header=True,
+        )])
+    story.append(Paragraph(_text(summary.get("disclosure", "")), styles["disclaimer"])),
+    document.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
+    return buffer.getvalue()
+
+
+def render_discovery_pdf(result: dict[str, Any]) -> bytes:
+    buffer = BytesIO()
+    document = SimpleDocTemplate(
+        buffer, pagesize=landscape(LETTER), rightMargin=.45 * inch, leftMargin=.45 * inch,
+        topMargin=.7 * inch, bottomMargin=.58 * inch, title="Atlas Opportunity Discovery", author="Project Atlas",
+    )
+    styles = _styles()
+    story = [
+        Paragraph("PROJECT ATLAS", styles["eyebrow"]), Paragraph("Opportunity Discovery", styles["title"]),
+        Paragraph(_text(f"Preliminary market screen created {result.get('created_at', '')}"), styles["subtitle"]),
+        HRFlowable(width="100%", thickness=2, color=GOLD, spaceBefore=5, spaceAfter=12),
+        Paragraph(_text(result.get("summary", "")), styles["body"]),
+    ]
+    columns = ["Rank", "Ticker", "Company", "Sector", "Score", "Label", "Price", "Forward P/E", "PEG", "Valuation", "Quality", "Growth", "Trend", "Risk fit", "Data", "On radar"]
+    rows = [[_hp(column, styles) for column in columns]]
+    for item in result.get("rows", []):
+        rows.append([_p(value, styles) for value in [
+            item.get("Rank"), item.get("Ticker"), item.get("Company"), item.get("Sector"),
+            _score(item.get("Discovery score")), item.get("Research label"), _currency(item.get("Price")),
+            _decimal(item.get("Forward P/E")), _decimal(item.get("PEG")), _score(item.get("Valuation")),
+            _score(item.get("Quality")), _score(item.get("Growth")), _score(item.get("Trend")),
+            _score(item.get("Risk fit")), item.get("Data status"), "Yes" if item.get("On radar") else "No",
+        ]])
+    widths = [.4, .5, .95, .7, .52, 1.05, .55, .55, .42, .55, .55, .55, .55, .55, .45, .48]
+    story.append(_styled_table(rows, [value * inch for value in widths], header=True, font_size=6.0))
+    story.append(_section("Why candidates surfaced", styles))
+    for item in result.get("rows", [])[:10]:
+        story.append(Paragraph(_text(
+            f"#{item.get('Rank')} {item.get('Ticker')}: {item.get('Why it surfaced')}. Caution: {item.get('What could go wrong')}."
+        ), styles["body"]))
+    monitor = result.get("monitor") or {}
+    if monitor:
+        story.append(_section("Changes since prior scan", styles))
+        story.append(Paragraph(_text(monitor.get("summary", "")), styles["body"]))
+        for item in monitor.get("events", [])[:12]:
+            story.append(Paragraph(_text(
+                f"{item.get('Ticker')} — {item.get('Change')}: {item.get('Details')}"
+            ), styles["body"]))
+    if result.get("failures"):
+        story.append(Paragraph(_text("Unavailable: " + "; ".join(
+            f"{item.get('Ticker')} - {item.get('Error')}" for item in result["failures"]
+        )), styles["warning"]))
+    story.append(Paragraph(_text(result.get("disclosure", "")), styles["disclaimer"]))
+    document.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
+    return buffer.getvalue()
+
+
 def render_change_pdf(change: dict[str, Any]) -> bytes:
     buffer = BytesIO()
     document = SimpleDocTemplate(
@@ -437,6 +578,191 @@ def render_change_pdf(change: dict[str, Any]) -> bytes:
     return buffer.getvalue()
 
 
+def render_decision_packet_pdf(packet: dict[str, Any]) -> bytes:
+    buffer = BytesIO()
+    ticker = packet.get("ticker", "")
+    company = packet.get("company", ticker)
+    document = SimpleDocTemplate(
+        buffer, pagesize=LETTER, rightMargin=.55 * inch, leftMargin=.55 * inch,
+        topMargin=.72 * inch, bottomMargin=.62 * inch,
+        title=f"Atlas Decision Packet - {ticker}", author="Project Atlas",
+    )
+    styles = _styles()
+    story = [
+        Paragraph("PROJECT ATLAS", styles["eyebrow"]),
+        Paragraph(_text(f"{company} ({ticker}) Decision Packet"), styles["title"]),
+        Paragraph(_text(f"Saved evidence snapshot created {packet.get('created_at', '')}"), styles["subtitle"]),
+        HRFlowable(width="100%", thickness=2, color=GOLD, spaceBefore=5, spaceAfter=12),
+        Paragraph(_text(packet.get("data_watermark", "EVIDENCE TRUST NOT ASSESSED")), styles["trust_band"]),
+    ]
+    committee = packet.get("committee") or {}
+    summary_rows = [
+        ["Beginner view", "Evidence confidence", "Evidence score", "Committee vote", "Committee score"],
+        [packet.get("beginner_view", "Research first"), packet.get("evidence_confidence", "Low"),
+         _score(packet.get("evidence_score")), committee.get("vote", "Unavailable"),
+         _score(committee.get("score"))],
+    ]
+    story.append(_styled_table(summary_rows, [document.width / 5] * 5, header=True))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph(_text(packet.get("plain_language_summary", "")), styles["body"]))
+    story.append(Paragraph(_text("Next step: " + str(packet.get("next_step") or "Complete missing research.")), styles["warning"]))
+
+    trust = packet.get("evidence_trust") or {}
+    if trust:
+        trust_rows = [["Evidence", "Status", "Trust score", "Details"]] + [
+            [row.get("Evidence", ""), row.get("Status", ""), _score(row.get("Score")), row.get("Details", "")]
+            for row in trust.get("components", [])
+        ]
+        story.extend([_section("Evidence trust and freshness", styles), _styled_table(
+            trust_rows, [1.35 * inch, .7 * inch, .8 * inch, 3.9 * inch], header=True, font_size=6.8,
+        )])
+        for warning in trust.get("warnings", []):
+            story.append(Paragraph(_text(warning), styles["warning"]))
+
+    story.append(_section("Decision explanation", styles))
+    decision_rows = [
+        [Paragraph("What supports this view", styles["column_heading"]), Paragraph("What could change it", styles["column_heading"])],
+        [_p(packet.get("supports", ""), styles), _p(packet.get("cautions", ""), styles)],
+    ]
+    story.append(_styled_table(decision_rows, [document.width / 2] * 2, header=True))
+    workflow = packet.get("workflow", {})
+    workflow_rows = [["Evidence", "Status", "Details", "Next step"]] + [
+        [row.get("Evidence", ""), row.get("Status", ""), row.get("Details", ""), row.get("Next step", "")]
+        for row in workflow.get("checks", [])
+    ]
+    story.extend([_section("Evidence completeness", styles), _styled_table(
+        workflow_rows, [1.2 * inch, .65 * inch, 2.25 * inch, 2.55 * inch], header=True, font_size=6.8,
+    )])
+
+    report = packet.get("report") or {}
+    if report:
+        story.append(_section("Research case", styles))
+        story.append(Paragraph(_text(report.get("executive_summary", "")), styles["body"]))
+        cases = [
+            [Paragraph("Bull case", styles["column_heading"]), Paragraph("Bear case", styles["column_heading"])],
+            [_paragraph_list(report.get("bull_case", []), styles), _paragraph_list(report.get("bear_case", []), styles)],
+        ]
+        story.append(_styled_table(cases, [document.width / 2] * 2, header=True))
+        story.append(_section("Risks and catalysts", styles))
+        risk_catalyst = [
+            [Paragraph("Risks", styles["column_heading"]), Paragraph("Catalysts", styles["column_heading"])],
+            [_paragraph_list(report.get("risks", []), styles), _paragraph_list(report.get("catalysts", []), styles)],
+        ]
+        story.append(_styled_table(risk_catalyst, [document.width / 2] * 2, header=True))
+
+    technical = packet.get("technical") or {}
+    environment = packet.get("environment") or {}
+    catalyst = packet.get("next_catalyst") or {}
+    story.append(_section("Market, trend, and catalyst context", styles))
+    context_rows = [
+        ["Technical trend", "Market posture", "Environment score", "Next catalyst", "Event date"],
+        [technical.get("label", technical.get("status", "Unavailable")), environment.get("label", "Unavailable"),
+         _score(environment.get("score")), catalyst.get("title", "Unavailable"), catalyst.get("date", "Unavailable")],
+    ]
+    story.append(_styled_table(context_rows, [document.width / 5] * 5, header=True))
+    if environment.get("buying_context"):
+        story.append(Paragraph(_text(environment["buying_context"]), styles["body"]))
+
+    health = packet.get("financial_health") or {}
+    valuation = packet.get("valuation") or {}
+    story.append(_section("Financial health and valuation", styles))
+    health_rows = [
+        ["SEC posture", "SEC score", "Metric coverage", "Valuation status", "Margin of safety", "Base value"],
+        [_p(health.get("posture", "Not analyzed"), styles), _p(_score(health.get("score")), styles),
+         _p(_percent_value(health.get("coverage")), styles), _p(valuation.get("status", "Not modeled"), styles),
+         _p(_signed_percent(valuation.get("margin_of_safety")), styles),
+         _p(_currency(valuation.get("base_value")), styles)],
+    ]
+    story.append(_styled_table(health_rows, [document.width / 6] * 6, header=True))
+    signals = health.get("signals", [])
+    if signals:
+        signal_rows = [["SEC factor", "Direction", "Change"]] + [
+            [item.get("Factor", ""), item.get("Direction", ""), _signed_percent(item.get("Change"))]
+            for item in signals
+        ]
+        story.append(Spacer(1, 6))
+        story.append(_styled_table(signal_rows, [document.width / 3] * 3, header=True))
+
+    thesis = packet.get("thesis") or {}
+    evaluation = packet.get("thesis_evaluation") or {}
+    story.append(_section("Thesis and invalidation", styles))
+    if thesis:
+        thesis_rows = [
+            ["Saved stance", "Confidence", "Evaluation", "Review date", "Risk limit", "Minimum readiness"],
+            [thesis.get("stance", ""), thesis.get("confidence", ""), evaluation.get("status", ""),
+             thesis.get("review_date", ""), _score(thesis.get("max_risk_score")),
+             _score(thesis.get("min_readiness_score"))],
+        ]
+        story.append(_styled_table(thesis_rows, [document.width / 6] * 6, header=True))
+        conditions = thesis.get("invalidation_conditions", [])
+        if conditions:
+            story.append(Paragraph(_text("Saved invalidation conditions: " + "; ".join(conditions)), styles["warning"]))
+        for flag in evaluation.get("flags", []):
+            story.append(Paragraph(_text(f"{flag.get('factor')}: {flag.get('message')}"), styles["small"]))
+    else:
+        story.append(Paragraph("No personal thesis has been saved.", styles["warning"]))
+
+    sizing = packet.get("position_plan") or {}
+    story.append(_section("Position-sizing plan", styles))
+    if sizing:
+        sizing_rows = [
+            ["Preset", "Entry", "Invalidation", "Share ceiling", "Position value", "Allocation", "Modeled loss"],
+            [sizing.get("preset", ""), _currency(sizing.get("entry_price")), _currency(sizing.get("invalidation_price")),
+             f"{sizing.get('suggested_shares', 0):,}", _currency(sizing.get("position_value")),
+             _percent_value(sizing.get("portfolio_allocation")), _currency(sizing.get("loss_at_invalidation"))],
+        ]
+        story.append(_styled_table(sizing_rows, [document.width / 7] * 7, header=True, font_size=6.8))
+        story.append(Paragraph(_text(sizing.get("summary", "")), styles["body"]))
+        for note in sizing.get("modifiers", []) + sizing.get("warnings", []):
+            story.append(Paragraph(_text(note), styles["warning"]))
+    else:
+        story.append(Paragraph("No saved position-sizing plan is available.", styles["warning"]))
+
+    alerts = packet.get("alerts", [])
+    story.append(_section("Active alerts", styles))
+    if alerts:
+        alert_rows = [["Severity", "Category", "Title", "Message", "Created"]] + [
+            [item.get("severity", ""), item.get("alert_type", ""), item.get("title", ""),
+             item.get("message", ""), item.get("created_at", "")]
+            for item in alerts
+        ]
+        story.append(_styled_table(alert_rows, [.65 * inch, .9 * inch, 1.5 * inch, 2.75 * inch, .9 * inch], header=True, font_size=6.5))
+    else:
+        story.append(Paragraph("No active saved alerts for this company.", styles["body"]))
+
+    sources = packet.get("sources", [])
+    story.append(_section("Sources and freshness", styles))
+    if sources:
+        source_rows = [["Evidence", "Provider", "Observed", "Saved"]] + [
+            [item.get("Evidence", ""), item.get("Provider", ""), item.get("Observed", ""), item.get("Saved", "")]
+            for item in sources
+        ]
+        story.append(_styled_table(source_rows, [1.25 * inch, 2.4 * inch, 1.55 * inch, 1.55 * inch], header=True, font_size=6.5))
+    story.append(Paragraph(_text(packet.get("disclosure", "")), styles["disclaimer"]))
+    document.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
+    return buffer.getvalue()
+
+
+def _score(value: Any) -> str:
+    return "Unavailable" if value is None else f"{float(value):.1f}/100"
+
+
+def _decimal(value: Any) -> str:
+    return "Unavailable" if value is None else f"{float(value):.2f}"
+
+
+def _currency(value: Any) -> str:
+    return "Unavailable" if value is None else f"${float(value):,.2f}"
+
+
+def _percent_value(value: Any) -> str:
+    return "Unavailable" if value is None else f"{float(value):.1f}%"
+
+
+def _signed_percent(value: Any) -> str:
+    return "Unavailable" if value is None else f"{float(value):+.1f}%"
+
+
 def _portfolio_metric(value: Any) -> str:
     return "N/A" if value is None else f"{float(value):.1f}/100"
 
@@ -455,6 +781,7 @@ def _styles() -> dict[str, ParagraphStyle]:
         "cell": ParagraphStyle("AtlasCell", parent=base["BodyText"], fontSize=7, leading=9, textColor=NAVY),
         "header_cell": ParagraphStyle("AtlasHeaderCell", parent=base["BodyText"], fontName="Helvetica-Bold", fontSize=7, leading=9, textColor=colors.white),
         "warning": ParagraphStyle("AtlasWarning", parent=base["BodyText"], fontSize=7.5, leading=10, textColor=RED, backColor=colors.HexColor("#FCE8E6"), borderPadding=4, spaceAfter=4),
+        "trust_band": ParagraphStyle("AtlasTrustBand", parent=base["BodyText"], fontName="Helvetica-Bold", fontSize=9, leading=12, textColor=NAVY, backColor=PALE_GOLD, borderPadding=6, alignment=TA_CENTER, spaceAfter=8),
         "disclaimer": ParagraphStyle("AtlasDisclaimer", parent=base["BodyText"], fontSize=7, leading=9.5, textColor=NAVY, backColor=PALE_GOLD, borderPadding=6, spaceBefore=8),
     }
 

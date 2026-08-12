@@ -6,7 +6,7 @@ from time import perf_counter
 from typing import Any, Callable
 
 
-LIVE_READINESS_SERVICE_VERSION = 1
+LIVE_READINESS_SERVICE_VERSION = 2
 SNAPSHOT_FIELDS = (
     "symbol", "name", "price", "sector", "industry", "pe_ratio", "forward_pe", "profit_margin",
     "operating_margin", "return_on_equity", "revenue_growth", "earnings_growth", "beta",
@@ -19,6 +19,7 @@ def environment_readiness() -> dict[str, Any]:
         "market_mode": os.getenv("ATLAS_DATA_PROVIDER", "demo").lower(),
         "macro_mode": os.getenv("ATLAS_MACRO_PROVIDER", "demo").lower(),
         "alpha_vantage_key": bool(os.getenv("ALPHA_VANTAGE_API_KEY")),
+        "tiingo_key": bool(os.getenv("TIINGO_API_KEY")),
         "fred_key": bool(os.getenv("FRED_API_KEY")),
     }
 

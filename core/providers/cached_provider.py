@@ -9,7 +9,7 @@ from core.providers.market_provider import MarketDataProvider, ProviderError
 from core.services.provider_cache import ProviderCache
 
 
-MARKET_TTLS = {"search": 86400, "snapshot": 900, "news": 900, "history": 43200, "daily_history": 43200}
+MARKET_TTLS = {"search": 86400, "market_movers": 21600, "snapshot": 900, "news": 900, "history": 43200, "daily_history": 43200}
 MACRO_TTLS = {"snapshot": 21600}
 
 
@@ -68,7 +68,7 @@ class _CachedProvider:
             raise last_error or ProviderError(f"{operation} failed without a provider response.")
 
     def status(self) -> dict[str, Any]:
-        return {
+        status = {
             "provider": self.name,
             **self._stats,
             "cache_entries": self.cache.count(self.namespace),
@@ -76,6 +76,10 @@ class _CachedProvider:
             "last_source": self._last_event["source"],
             "last_age_seconds": self._last_event["age_seconds"],
         }
+        if hasattr(self.delegate, "usage_status"):
+            usage = self.delegate.usage_status()
+            status.update({f"quota_{key}": value for key, value in usage.items()})
+        return status
 
     def reset_status(self) -> None:
         for key in self._stats:
@@ -101,6 +105,12 @@ class CachedMarketDataProvider(_CachedProvider, MarketDataProvider):
         normalized = query.strip().lower()
         return self._cached("search", {"query": normalized}, lambda: self.delegate.search(query))
 
+    def market_movers(self) -> dict[str, Any]:
+        reader = getattr(self.delegate, "market_movers", None)
+        if reader is None:
+            raise ProviderError(f"{self.name} does not provide an automatic market-candidate feed.")
+        return self._cached("market_movers", {}, reader)
+
     def snapshot(self, ticker: str) -> dict[str, Any]:
         symbol = ticker.strip().upper()
         return self._cached("snapshot", {"ticker": symbol}, lambda: self.delegate.snapshot(symbol))
@@ -118,6 +128,23 @@ class CachedMarketDataProvider(_CachedProvider, MarketDataProvider):
         return self._cached(
             "daily_history", {"ticker": symbol}, lambda: self.delegate.daily_history(symbol)
         )
+
+    def estimated_requests_for_analysis(self, tickers: list[str]) -> int:
+        symbols = list(dict.fromkeys(ticker.strip().upper() for ticker in tickers if ticker.strip()))
+        cost = getattr(self.delegate, "quota_cost", lambda operation: {
+            "snapshot": 2, "news": 1, "history": 1, "daily_history": 1,
+        }.get(operation, 0))
+        estimate = self._uncached_cost("history", {"ticker": "SPY"}, cost("history"))
+        estimate += self._uncached_cost("daily_history", {"ticker": "SPY"}, cost("daily_history"))
+        for symbol in symbols:
+            estimate += self._uncached_cost("snapshot", {"ticker": symbol}, cost("snapshot"))
+            estimate += self._uncached_cost("news", {"ticker": symbol}, cost("news"))
+            estimate += self._uncached_cost("history", {"ticker": symbol}, cost("history"))
+            estimate += self._uncached_cost("daily_history", {"ticker": symbol}, cost("daily_history"))
+        return estimate
+
+    def _uncached_cost(self, operation: str, parameters: dict[str, str], cost: int) -> int:
+        return 0 if self.cache.get(self.namespace, operation, parameters) else cost
 
 
 class CachedEconomicDataProvider(_CachedProvider, EconomicDataProvider):

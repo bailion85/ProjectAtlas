@@ -8,7 +8,7 @@ from core.services.committee_service import PRESETS
 from core.services.market_regime_service import analyze_market_environment
 
 
-SCHEDULER_SERVICE_VERSION = 1
+SCHEDULER_SERVICE_VERSION = 2
 DEFAULT_SCHEDULE = {
     "enabled": False,
     "interval_hours": 24,
@@ -70,6 +70,19 @@ class ScheduledResearchService:
         if not symbols:
             errors.append("No companies are available in the selected schedule scope.")
             self.repository.finish_scheduler_run(run_id, self.clock().isoformat(), "Skipped", 0, 0, errors)
+            return self.repository.scheduler_runs(1)[0]
+        estimator = getattr(self.market_provider, "estimated_requests_for_analysis", None)
+        provider_status = self.market_provider.status() if hasattr(self.market_provider, "status") else {}
+        remaining = provider_status.get("quota_remaining")
+        estimate = estimator(symbols) if estimator else 0
+        if remaining is not None and estimate > remaining:
+            errors.append(
+                f"Scheduled refresh needs about {estimate} Alpha Vantage requests, but only "
+                f"{remaining} remain in Atlas's daily budget. No live requests were made."
+            )
+            self.repository.finish_scheduler_run(
+                run_id, self.clock().isoformat(), "Failed", 0, 0, errors,
+            )
             return self.repository.scheduler_runs(1)[0]
         try:
             macro = self.macro_provider.snapshot()

@@ -11,6 +11,8 @@ def assess_catalysts(ticker: str, snapshot: dict[str, Any]) -> dict[str, Any]:
     for raw in snapshot.get("events", []):
         if raw.get("scope") != "global" and symbol not in raw.get("affected", []):
             continue
+        if raw.get("source_stale"):
+            continue
         event = dict(raw)
         days = (date.fromisoformat(event["date"]) - today).days
         if days < 0:
@@ -42,6 +44,9 @@ def assess_catalysts(ticker: str, snapshot: dict[str, Any]) -> dict[str, Any]:
         "events": relevant,
         "provider": snapshot.get("provider", "Unknown"),
         "retrieved_at": snapshot.get("retrieved_at", ""),
+        "live": bool(snapshot.get("live")),
+        "stale": bool(snapshot.get("stale")),
+        "source_error": snapshot.get("error"),
         "summary": _summary(readiness, next_event),
     }
 
