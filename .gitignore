@@ -19,3 +19,6 @@ logs/
 
 # Local verification artifacts
 tmp/
+
+# Generated reports
+output/pdf/

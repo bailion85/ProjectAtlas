@@ -46,6 +46,7 @@ def rank_watchlist(tickers: list[str], reports: dict[str, ResearchReport], mode:
             "Rank": 0,
             "Ticker": ticker,
             "Company": report.company,
+            "Asset type": report.company_metrics.get("asset_type", "Stock"),
             "Opportunity score": opportunity_score,
             "Entry readiness": readiness.get("score"),
             "Entry posture": readiness.get("posture", "Unavailable"),

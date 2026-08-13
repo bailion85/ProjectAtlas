@@ -112,14 +112,19 @@ def _backtest_text(backtest: dict[str, Any]) -> str:
 
 
 def _data_quality(risk: dict[str, Any], metrics: dict[str, Any]) -> float:
-    keys = ("price", "pe_ratio", "profit_margin", "revenue_growth", "beta", "fifty_two_week_high", "fifty_two_week_low")
+    keys = (("price", "return_1y", "relative_return_1y", "annualized_volatility", "max_drawdown")
+            if metrics.get("asset_type") == "ETF" else
+            ("price", "pe_ratio", "profit_margin", "revenue_growth", "beta", "fifty_two_week_high", "fifty_two_week_low"))
     completeness = sum(metrics.get(key) is not None for key in keys) / len(keys) * 100
     return completeness * .6 + float(risk.get("coverage_percent", 0)) * .4
 
 
 def _data_quality_text(metrics: dict[str, Any]) -> str:
-    missing = [key.replace("_", " ") for key, value in metrics.items() if value is None]
-    return "All tracked company metrics are available." if not missing else "Missing company metrics: " + ", ".join(missing) + "."
+    relevant = (("price", "return_1y", "relative_return_1y", "annualized_volatility", "max_drawdown")
+                if metrics.get("asset_type") == "ETF" else metrics.keys())
+    missing = [key.replace("_", " ") for key in relevant if metrics.get(key) is None]
+    label = "ETF market metrics" if metrics.get("asset_type") == "ETF" else "company metrics"
+    return f"All tracked {label} are available." if not missing else f"Missing {label}: " + ", ".join(missing) + "."
 
 
 def _improvement(factor: str) -> str:

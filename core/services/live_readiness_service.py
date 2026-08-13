@@ -6,7 +6,7 @@ from time import perf_counter
 from typing import Any, Callable
 
 
-LIVE_READINESS_SERVICE_VERSION = 2
+LIVE_READINESS_SERVICE_VERSION = 3
 SNAPSHOT_FIELDS = (
     "symbol", "name", "price", "sector", "industry", "pe_ratio", "forward_pe", "profit_margin",
     "operating_margin", "return_on_equity", "revenue_growth", "earnings_growth", "beta",
@@ -95,9 +95,9 @@ def test_macro_provider(provider) -> dict[str, Any]:
     if check["status"] == "Pass":
         indicators = check["value"].get("indicators", {})
         stale = sum(bool(item.get("stale")) for item in indicators.values())
-        coverage = round(len(indicators) / 5 * 100, 1)
-        check["status"] = "Pass" if len(indicators) >= 5 and stale == 0 else "Warning"
-        check["details"] = f"Returned {len(indicators)}/5 expected indicators; {stale} marked stale."
+        coverage = round(len(indicators) / 6 * 100, 1)
+        check["status"] = "Pass" if len(indicators) >= 6 and stale == 0 else "Warning"
+        check["details"] = f"Returned {len(indicators)}/6 expected indicators; {stale} marked stale."
     public_check = {key: value for key, value in check.items() if key != "value"}
     return {
         "provider": provider.name, "tested_at": datetime.now(timezone.utc).isoformat(),

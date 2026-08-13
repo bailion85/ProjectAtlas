@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import importlib
 import inspect
@@ -16,18 +16,27 @@ import core.providers.market_provider as market_provider_module
 import core.providers.cached_provider as cached_provider_module
 import core.providers.hybrid_provider as hybrid_provider_module
 import core.providers.tiingo_provider as tiingo_provider_module
+import core.providers.yahooquery_provider as yahooquery_provider_module
+import core.providers.fallback_provider as fallback_provider_module
+import core.providers.sec_provider as sec_provider_module
+import core.providers.event_provider as event_provider_module
+import core.providers.news_provider as news_provider_module
+import core.providers.economic_provider as economic_provider_module
+import core.services.macro_service as macro_service_module
+import core.agents.strategies as strategies_module
+import core.services.market_regime_service as market_regime_service_module
+import core.services.market_pulse_service as market_pulse_service_module
+import core.services.market_news_service as market_news_service_module
+import core.services.provider_cache as provider_cache_module
 from core.providers.demo_provider import DemoProvider
 from core.providers.market_provider import AlphaVantageProvider, ProviderError
-from core.providers.economic_provider import DemoEconomicProvider, FredProvider
-from core.providers.event_provider import DemoEconomicEventProvider
 from core.providers.calendar_provider import (
     AlphaVantageEarningsCalendarProvider, CombinedCatalystCalendarProvider,
     DemoCatalystCalendarProvider, FredReleaseCalendarProvider,
 )
 from core.providers.cached_provider import CachedEconomicDataProvider, CachedMarketDataProvider
-from core.providers.fallback_provider import FallbackMarketDataProvider
+
 from core.providers.sec_provider import SecCompanyFactsProvider
-from core.services.provider_cache import ProviderCache
 import core.models.research as research_model_module
 import core.services.committee_service as committee_service_module
 import core.services.analysis_service as analysis_service_module
@@ -42,8 +51,10 @@ import core.services.change_tracking_service as change_tracking_service_module
 import core.services.scheduler_service as scheduler_service_module
 import core.services.live_readiness_service as live_readiness_service_module
 import core.services.opportunity_discovery_service as opportunity_discovery_service_module
+import dashboard.market_intelligence_page as market_intelligence_page_module
+import core.services.x_feed_service as x_feed_service_module
+import core.agents.market_intelligence as market_intelligence_agent_module
 import core.services.discovery_monitor_service as discovery_monitor_service_module
-from core.services.market_regime_service import analyze_market_environment
 from core.services.watchlist_service import RANKING_MODES, rank_watchlist
 from core.services.catalyst_service import global_calendar
 from core.services.backtest_service import backtest_golden_cross
@@ -67,10 +78,15 @@ from core.services.position_sizing_service import SIZING_PRESETS, build_position
 from core.services.decision_packet_service import build_decision_packet
 from core.services.evidence_trust_service import assess_evidence_trust, build_trust_alert
 from core.services.portfolio_action_service import build_portfolio_action_plan
+from core.services.holding_guidance_service import build_holding_guidance
 from core.services.decision_accuracy_service import build_label_snapshot, evaluate_snapshot, summarize_accuracy
 from core.services.discovery_scan_service import DiscoveryScanService
 from core.services.discovery_scheduler_service import ScheduledDiscoveryService
 from core.services.provider_health_service import build_provider_health
+from core.services.feed_intelligence_service import build_entity_catalog, build_feed_analytics
+from core.services.trending_intelligence_service import build_trending_intelligence
+from core.services.daily_intelligence_summary_service import build_daily_intelligence_summary
+from core.services.daily_briefing_service import build_daily_briefing
 from core.services.settings_service import (
     DEFAULT_CONFIG, load_configuration, profile as settings_profile,
     save_configuration, validate_configuration,
@@ -111,9 +127,45 @@ except ModuleNotFoundError as exc:
 
 # Streamlit can preserve imported project modules across app-only hot reloads.
 modules_reloaded = False
-if (not hasattr(cached_provider_module.CachedMarketDataProvider, "daily_history") or
+if getattr(provider_cache_module, "PROVIDER_CACHE_VERSION", 0) < 2:
+    provider_cache_module = importlib.reload(provider_cache_module)
+    modules_reloaded = True
+ProviderCache = provider_cache_module.ProviderCache
+if (getattr(event_provider_module, "EVENT_PROVIDER_VERSION", 0) < 1 or
+        not hasattr(event_provider_module, "CalendarEconomicEventProvider")):
+    event_provider_module = importlib.reload(event_provider_module)
+    modules_reloaded = True
+CalendarEconomicEventProvider = event_provider_module.CalendarEconomicEventProvider
+DemoEconomicEventProvider = event_provider_module.DemoEconomicEventProvider
+macro_dependency_reloaded = False
+if (getattr(economic_provider_module, "ECONOMIC_PROVIDER_VERSION", 0) < 3 or
+        "oil_wti" not in economic_provider_module.SERIES or
+        getattr(macro_service_module, "MACRO_SERVICE_VERSION", 0) < 2):
+    economic_provider_module = importlib.reload(economic_provider_module)
+    macro_service_module = importlib.reload(macro_service_module)
+    strategies_module = importlib.reload(strategies_module)
+    risk_service_module = importlib.reload(risk_service_module)
+    market_regime_service_module = importlib.reload(market_regime_service_module)
+    modules_reloaded = True
+    macro_dependency_reloaded = True
+if getattr(strategies_module, "STRATEGY_AGENTS_VERSION", 0) < 2:
+    strategies_module = importlib.reload(strategies_module)
+    analysis_service_module = importlib.reload(analysis_service_module)
+    modules_reloaded = True
+DemoEconomicProvider = economic_provider_module.DemoEconomicProvider
+FredProvider = economic_provider_module.FredProvider
+analyze_market_environment = market_regime_service_module.analyze_market_environment
+oil_market_impact = macro_service_module.oil_market_impact
+if getattr(market_pulse_service_module, "MARKET_PULSE_SERVICE_VERSION", 0) < 2:
+    market_pulse_service_module = importlib.reload(market_pulse_service_module)
+build_market_pulse = market_pulse_service_module.build_market_pulse
+if getattr(market_news_service_module, "MARKET_NEWS_SERVICE_VERSION", 0) < 1:
+    market_news_service_module = importlib.reload(market_news_service_module)
+build_market_news = market_news_service_module.build_market_news
+if (getattr(cached_provider_module, "CACHED_PROVIDER_VERSION", 0) < 5 or
+        not hasattr(cached_provider_module.CachedMarketDataProvider, "daily_history") or
         getattr(demo_provider_module, "DEMO_PROVIDER_VERSION", 0) < 2 or
-        getattr(market_provider_module, "MARKET_PROVIDER_VERSION", 0) < 4):
+        getattr(market_provider_module, "MARKET_PROVIDER_VERSION", 0) < 5):
     market_provider_module = importlib.reload(market_provider_module)
     demo_provider_module = importlib.reload(demo_provider_module)
     cached_provider_module = importlib.reload(cached_provider_module)
@@ -123,19 +175,35 @@ if (not hasattr(cached_provider_module.CachedMarketDataProvider, "daily_history"
     CachedMarketDataProvider = cached_provider_module.CachedMarketDataProvider
     CachedEconomicDataProvider = cached_provider_module.CachedEconomicDataProvider
     modules_reloaded = True
-if (getattr(hybrid_provider_module, "HYBRID_PROVIDER_VERSION", 0) < 3 or
-        getattr(tiingo_provider_module, "TIINGO_PROVIDER_VERSION", 0) < 2):
+if (getattr(hybrid_provider_module, "HYBRID_PROVIDER_VERSION", 0) < 8 or
+        getattr(tiingo_provider_module, "TIINGO_PROVIDER_VERSION", 0) < 4):
     tiingo_provider_module = importlib.reload(tiingo_provider_module)
     hybrid_provider_module = importlib.reload(hybrid_provider_module)
     modules_reloaded = True
 TiingoProvider = tiingo_provider_module.TiingoProvider
 HybridMarketDataProvider = hybrid_provider_module.HybridMarketDataProvider
+if (modules_reloaded or getattr(fallback_provider_module, "LIVE_FALLBACK_PROVIDER_VERSION", 0) < 2 or
+        not hasattr(fallback_provider_module, "LiveFallbackMarketDataProvider") or
+        getattr(yahooquery_provider_module, "YAHOOQUERY_PROVIDER_VERSION", 0) < 1):
+    yahooquery_provider_module = importlib.reload(yahooquery_provider_module)
+    fallback_provider_module = importlib.reload(fallback_provider_module)
+    modules_reloaded = True
+YahooQueryProvider = yahooquery_provider_module.YahooQueryProvider
+LiveFallbackMarketDataProvider = fallback_provider_module.LiveFallbackMarketDataProvider
+FallbackMarketDataProvider = fallback_provider_module.FallbackMarketDataProvider
+if getattr(sec_provider_module, "SEC_PROVIDER_VERSION", 0) < 2:
+    sec_provider_module = importlib.reload(sec_provider_module)
+    modules_reloaded = True
+SecCompanyFactsProvider = sec_provider_module.SecCompanyFactsProvider
 if "configuration" not in research_model_module.ResearchReport.__dataclass_fields__:
     research_model_module = importlib.reload(research_model_module)
     modules_reloaded = True
-if not hasattr(committee_service_module, "score_contributions"):
+committee_dependency_reloaded = False
+if (getattr(committee_service_module, "COMMITTEE_SERVICE_VERSION", 0) < 2 or
+        not hasattr(committee_service_module, "score_contributions")):
     committee_service_module = importlib.reload(committee_service_module)
     modules_reloaded = True
+    committee_dependency_reloaded = True
 if "weights" not in inspect.signature(risk_service_module.analyze_risk).parameters:
     risk_service_module = importlib.reload(risk_service_module)
     modules_reloaded = True
@@ -150,13 +218,14 @@ if getattr(change_tracking_service_module, "CHANGE_TRACKING_SERVICE_VERSION", 0)
     change_tracking_service_module = importlib.reload(change_tracking_service_module)
     compare_reports = change_tracking_service_module.compare_reports
     modules_reloaded = True
-if getattr(scheduler_service_module, "SCHEDULER_SERVICE_VERSION", 0) < 2:
+if committee_dependency_reloaded or getattr(scheduler_service_module, "SCHEDULER_SERVICE_VERSION", 0) < 2:
     scheduler_service_module = importlib.reload(scheduler_service_module)
     DEFAULT_SCHEDULE = scheduler_service_module.DEFAULT_SCHEDULE
     SCOPES = scheduler_service_module.SCOPES
     ScheduledResearchService = scheduler_service_module.ScheduledResearchService
     modules_reloaded = True
-if getattr(live_readiness_service_module, "LIVE_READINESS_SERVICE_VERSION", 0) < 2:
+if (macro_dependency_reloaded or
+        getattr(live_readiness_service_module, "LIVE_READINESS_SERVICE_VERSION", 0) < 3):
     live_readiness_service_module = importlib.reload(live_readiness_service_module)
     environment_readiness = live_readiness_service_module.environment_readiness
     readiness_summary = live_readiness_service_module.readiness_summary
@@ -179,7 +248,18 @@ if getattr(discovery_monitor_service_module, "DISCOVERY_MONITOR_SERVICE_VERSION"
     discovery_monitor_service_module = importlib.reload(discovery_monitor_service_module)
 compare_discovery_runs = discovery_monitor_service_module.compare_discovery_runs
 discovery_alerts = discovery_monitor_service_module.discovery_alerts
+market_intelligence_dependency_reloaded = False
+if (getattr(x_feed_service_module, "X_FEED_SERVICE_VERSION", 0) < 2 or
+        "catalog" not in inspect.signature(x_feed_service_module.sync_x_sources).parameters):
+    x_feed_service_module = importlib.reload(x_feed_service_module)
+    market_intelligence_dependency_reloaded = True
+if market_intelligence_dependency_reloaded or getattr(market_intelligence_page_module, "MARKET_INTELLIGENCE_PAGE_VERSION", 0) < 5:
+    market_intelligence_page_module = importlib.reload(market_intelligence_page_module)
+render_market_intelligence_page = market_intelligence_page_module.render_market_intelligence_page
+render_market_intelligence_snapshot = market_intelligence_page_module.render_market_intelligence_snapshot
 if (modules_reloaded or not hasattr(report_repository_module.ReportRepository, "portfolio_positions") or
+        not hasattr(report_repository_module.ReportRepository, "portfolio_holdings") or
+        getattr(report_repository_module, "REPORT_REPOSITORY_VERSION", 0) < 2 or
         not hasattr(report_repository_module.ReportRepository, "report_tickers") or
         not hasattr(report_repository_module.ReportRepository, "scheduler_runs") or
         not hasattr(report_repository_module.ReportRepository, "add_tickers") or
@@ -194,7 +274,14 @@ if (modules_reloaded or not hasattr(report_repository_module.ReportRepository, "
     report_repository_module = importlib.reload(report_repository_module)
     modules_reloaded = True
 ReportRepository = report_repository_module.ReportRepository
-if modules_reloaded or "benchmark_daily_history" not in inspect.signature(analysis_service_module.AnalysisService.analyze).parameters:
+if getattr(market_intelligence_agent_module, "MARKET_INTELLIGENCE_AGENT_VERSION", 0) < 1:
+    market_intelligence_agent_module = importlib.reload(market_intelligence_agent_module)
+    analysis_service_module = importlib.reload(analysis_service_module)
+    modules_reloaded = True
+if (modules_reloaded or committee_dependency_reloaded
+        or getattr(analysis_service_module, "ANALYSIS_SERVICE_VERSION", 0) < 5
+        or analysis_service_module.normalize_weights is not committee_service_module.normalize_weights
+        or "benchmark_daily_history" not in inspect.signature(analysis_service_module.AnalysisService.analyze).parameters):
     analysis_service_module = importlib.reload(analysis_service_module)
     modules_reloaded = True
 AnalysisService = analysis_service_module.AnalysisService
@@ -218,7 +305,8 @@ def live_quota_message(data_provider, symbols: list[str]) -> str | None:
     status = status_reader()
     remaining = status.get("quota_remaining")
     estimate = estimator(symbols)
-    if remaining is not None and estimate > remaining:
+    if (remaining is not None and estimate > remaining and
+            not getattr(data_provider, "supports_no_credit_research", False)):
         return (
             f"This analysis needs about {estimate} Alpha Vantage requests, but only {remaining} remain "
             "in today's Atlas budget. No new live requests were made. Cached reports remain available; "
@@ -227,25 +315,48 @@ def live_quota_message(data_provider, symbols: list[str]) -> str | None:
     return None
 
 
-load_dotenv()
-st.set_page_config(page_title="Project Atlas", page_icon="🧭", layout="wide")
-SERVICE_CACHE_VERSION = "discovery-scheduler-v1"
+load_dotenv(override=True)
+st.set_page_config(page_title="Project Atlas", page_icon="Ã°Å¸Â§Â­", layout="wide")
+SERVICE_CACHE_VERSION = "|".join((
+    "provider-config-v4",
+    f"market-{getattr(market_provider_module, 'MARKET_PROVIDER_VERSION', 0)}",
+    f"cached-{getattr(cached_provider_module, 'CACHED_PROVIDER_VERSION', 0)}",
+    f"hybrid-{getattr(hybrid_provider_module, 'HYBRID_PROVIDER_VERSION', 0)}",
+    f"tiingo-{getattr(tiingo_provider_module, 'TIINGO_PROVIDER_VERSION', 0)}",
+    f"yahooquery-{getattr(yahooquery_provider_module, 'YAHOOQUERY_PROVIDER_VERSION', 0)}",
+    f"economic-{getattr(economic_provider_module, 'ECONOMIC_PROVIDER_VERSION', 0)}",
+    f"repository-{getattr(report_repository_module, 'REPORT_REPOSITORY_VERSION', 0)}",
+    os.getenv("ATLAS_DATA_PROVIDER", "hybrid").lower(),
+    os.getenv("ATLAS_MACRO_PROVIDER", "fred").lower(),
+    os.getenv("ATLAS_CALENDAR_PROVIDER", "fred" if os.getenv("FRED_API_KEY") else "demo").lower(),
+    os.getenv("ATLAS_ALLOW_DEMO_FALLBACK", "false").lower(),
+    "alpha" if os.getenv("ALPHA_VANTAGE_API_KEY") else "no-alpha",
+    "tiingo" if os.getenv("TIINGO_API_KEY") else "no-tiingo",
+    "fred" if os.getenv("FRED_API_KEY") else "no-fred",
+))
 
 
 @st.cache_resource
 def services(cache_version: str):
     # Changing this key refreshes long-lived objects after service or database upgrades.
     _ = cache_version
-    provider_name = os.getenv("ATLAS_DATA_PROVIDER", "demo").lower()
-    macro_provider_name = os.getenv("ATLAS_MACRO_PROVIDER", "demo").lower()
+    provider_name = os.getenv("ATLAS_DATA_PROVIDER", "hybrid").lower()
+    macro_provider_name = os.getenv("ATLAS_MACRO_PROVIDER", "fred").lower()
     calendar_provider_name = os.getenv(
         "ATLAS_CALENDAR_PROVIDER", "fred" if os.getenv("FRED_API_KEY") else "demo"
     ).lower()
+    if os.getenv("ATLAS_TEST_PAGE"):
+        provider_name = macro_provider_name = calendar_provider_name = "demo"
     base_macro_provider = FredProvider() if macro_provider_name == "fred" else DemoEconomicProvider()
     cache = ProviderCache(os.getenv("ATLAS_CACHE_PATH", "data/provider_cache.db"))
     if provider_name == "hybrid":
+        yahoo_prices = YahooQueryProvider()
+        prices = (
+            LiveFallbackMarketDataProvider(TiingoProvider(), yahoo_prices)
+            if os.getenv("TIINGO_API_KEY") else yahoo_prices
+        )
         base_provider = HybridMarketDataProvider(
-            AlphaVantageProvider(usage_store=cache), TiingoProvider()
+            AlphaVantageProvider(usage_store=cache), prices, SecCompanyFactsProvider(cache),
         )
     elif provider_name == "alpha_vantage":
         base_provider = AlphaVantageProvider(usage_store=cache)
@@ -253,11 +364,10 @@ def services(cache_version: str):
         base_provider = DemoProvider()
     provider = CachedMarketDataProvider(base_provider, cache)
     if (provider_name in {"alpha_vantage", "hybrid"} and
-            os.getenv("ATLAS_ALLOW_DEMO_FALLBACK", "true").lower() in {"1", "true", "yes", "on"}):
+            os.getenv("ATLAS_ALLOW_DEMO_FALLBACK", "false").lower() in {"1", "true", "yes", "on"}):
         provider = FallbackMarketDataProvider(provider, DemoProvider())
     macro_provider = CachedEconomicDataProvider(base_macro_provider, cache)
     repository = ReportRepository(os.getenv("ATLAS_DATABASE_PATH", "data/atlas.db"))
-    event_provider = DemoEconomicEventProvider()
     if calendar_provider_name == "fred":
         economic_calendar = FredReleaseCalendarProvider(cache)
         calendar_provider = (
@@ -266,14 +376,19 @@ def services(cache_version: str):
         )
     else:
         calendar_provider = DemoCatalystCalendarProvider()
+    event_provider = (
+        CalendarEconomicEventProvider(calendar_provider)
+        if calendar_provider_name == "fred" else DemoEconomicEventProvider()
+    )
     return provider, macro_provider, event_provider, calendar_provider, cache, repository, AnalysisService(provider, repository, macro_provider, event_provider, calendar_provider)
 
 
 st.title("Project Atlas")
-st.caption("Analysis-only investment research — no trading or brokerage connectivity")
+st.caption("Analysis-only investment research Ã¢â‚¬â€ no trading or brokerage connectivity")
 
 try:
     provider, macro_provider, event_provider, calendar_provider, provider_cache, repository, analysis = services(SERVICE_CACHE_VERSION)
+    news_provider = None if os.getenv("ATLAS_TEST_PAGE") else news_provider_module.GdeltNewsProvider(provider_cache)
 except RuntimeError as exc:
     st.error(f"Data provider configuration error: {exc}")
     st.info("Set ATLAS_DATA_PROVIDER=demo to use Atlas without a live-data API key.")
@@ -283,18 +398,38 @@ active_configuration = load_configuration(repository)
 discovery_scanner = DiscoveryScanService(provider, repository, provider_cache)
 discovery_scheduler = ScheduledDiscoveryService(discovery_scanner, repository)
 
-if provider.name.startswith("Demo"):
-    st.warning("Demo mode is active. Figures are illustrative and are not live market data.")
-elif "demo fallback enabled" in provider.name:
-    st.info(f"{provider.name}. Demo data is clearly labeled if a live source is unavailable.")
-if macro_provider.name.startswith("Demo"):
-    st.warning("Demo macro mode is active. Economic figures are illustrative and are not live.")
+market_is_live = not provider.name.startswith("Demo") and "demo fallback enabled" not in provider.name
+macro_is_live = not macro_provider.name.startswith("Demo")
+calendar_is_live = not calendar_provider.name.startswith("Demo")
+x_is_live = bool(os.getenv("X_BEARER_TOKEN"))
+strict_live = os.getenv("ATLAS_ALLOW_DEMO_FALLBACK", "false").lower() not in {"1", "true", "yes", "on"}
+source_states = {
+    "Market": market_is_live,
+    "Macro": macro_is_live,
+    "Calendars": calendar_is_live,
+    "X feeds": x_is_live,
+}
+with st.container(border=True):
+    badges = " ".join(
+        f":{'green' if ready else 'orange'}-badge[{name}: {'Live' if ready else 'Setup needed'}]"
+        for name, ready in source_states.items()
+    )
+    st.markdown(badges)
+    st.caption(
+        f"Market: {provider.name} Ã‚Â· Macro: {macro_provider.name} Ã‚Â· Calendar: {calendar_provider.name} Ã‚Â· "
+        f"Synthetic fallback: {'off' if strict_live else 'enabled'}"
+    )
+if not all(source_states.values()) or not strict_live:
+    st.warning(
+        "Atlas is not fully live. Open System Ã¢â€ â€™ Provider health for the exact source requiring attention. "
+        "Illustrative evidence remains visibly labeled and cannot pass live-evidence trust gates.",
+        icon=":material/warning:",
+    )
 else:
-    st.info("This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.")
-if calendar_provider.name.startswith("Demo"):
-    st.warning("Demo calendar mode is active. Demo events cannot create catalyst alerts or Decision Center catalyst flags.")
-else:
-    st.info("Economic dates use FRED and company earnings dates use Alpha Vantage. Live calendars are cached to conserve requests.")
+    st.caption(
+        "Strict live mode is active. Provider failures remain unavailable rather than being replaced with demo values. "
+        "FREDÃ‚Â® data is used under its published API terms; Atlas is not endorsed by the Federal Reserve Bank of St. Louis."
+    )
 if render_report_pdf is None:
     st.warning("PDF export requires the updated dependencies. Run: python -m pip install -r requirements.txt")
 
@@ -308,10 +443,12 @@ navigation = st.navigation(
     {
         "Home": [
             st.Page(atlas_page("Start here"), title="Start here", icon=":material/home:", url_path="home", default=True),
+            st.Page(atlas_page("Daily briefing"), title="Daily briefing", icon=":material/today:", url_path="daily-briefing"),
         ],
         "Ideas": [
             st.Page(atlas_page("Market"), title="Market and watchlist", icon=":material/monitoring:", url_path="market"),
             st.Page(atlas_page("Discover"), title="Discover", icon=":material/travel_explore:", url_path="discover"),
+            st.Page(atlas_page("Market intelligence"), title="Market intelligence", icon=":material/forum:", url_path="market-intelligence"),
         ],
         "Research": [
             st.Page(atlas_page("Research"), title="Company research", icon=":material/search_insights:", url_path="research"),
@@ -321,7 +458,7 @@ navigation = st.navigation(
             st.Page(atlas_page("Compare"), title="Compare", icon=":material/compare_arrows:", url_path="compare"),
         ],
         "Portfolio": [
-            st.Page(atlas_page("Portfolio"), title="Portfolio and sizing", icon=":material/account_balance_wallet:", url_path="portfolio"),
+            st.Page(atlas_page("Portfolio"), title="Holdings guidance", icon=":material/account_balance_wallet:", url_path="portfolio"),
             st.Page(atlas_page("Stress test"), title="Stress test", icon=":material/crisis_alert:", url_path="stress-test"),
         ],
         "Monitor": [
@@ -343,9 +480,267 @@ navigation = st.navigation(
 navigation.run()
 active_page = os.getenv("ATLAS_TEST_PAGE") or st.session_state.get("atlas_active_page", "Start here")
 
+if active_page == "Daily briefing":
+    st.subheader("Daily briefing")
+    st.caption("Your morning review from saved Atlas evidence. Opening this page makes no provider requests.")
+    briefing_discovery = repository.latest_discovery_run()
+    briefing_reports = repository.latest_reports(repository.report_tickers())
+    briefing = build_daily_briefing(
+        briefing_reports,
+        repository.portfolio_positions(),
+        repository.alerts(100, unread_only=True),
+        briefing_discovery,
+        provider.status(),
+        active_configuration["freshness_days"],
+    )
+    intelligence_state = repository.configuration("market_intelligence") or {}
+    intelligence_sources = intelligence_state.get("sources", [])
+    intelligence_commentary = intelligence_state.get("commentary", [])
+    intelligence_raw_posts = intelligence_state.get("raw_posts", [])
+    intelligence_catalog = build_entity_catalog(
+        repository.watchlist(), briefing_discovery, briefing_reports,
+    )
+    intelligence_feed = build_feed_analytics(
+        intelligence_sources, intelligence_raw_posts, intelligence_commentary,
+        intelligence_catalog, briefing_reports,
+    )
+    intelligence_trending = build_trending_intelligence(
+        intelligence_sources, intelligence_commentary,
+    )
+    intelligence_summary = build_daily_intelligence_summary(
+        briefing, intelligence_trending, intelligence_feed,
+        intelligence_state.get("last_x_sync"),
+    )
+    st.markdown("#### Executive intelligence summary")
+    if intelligence_summary["status"] == "Ready":
+        st.success(intelligence_summary["executive_summary"], icon=":material/insights:")
+    elif intelligence_summary["status"] == "Limited coverage":
+        st.warning(intelligence_summary["executive_summary"], icon=":material/warning:")
+    else:
+        st.info(intelligence_summary["executive_summary"], icon=":material/info:")
+    with st.container(horizontal=True):
+        st.metric("Feed status", intelligence_summary["status"], border=True)
+        st.metric("Posts analyzed", intelligence_summary["posts"], border=True)
+        st.metric("Universe coverage", f"{intelligence_summary['coverage']}%", border=True)
+        st.metric("Trending stocks", intelligence_summary["trending_stocks"], border=True)
+        st.metric("Risk reviews", intelligence_summary["risk_reviews"], border=True)
+    if intelligence_summary["highlights"]:
+        st.markdown("##### Leading feed attention")
+        st.dataframe(
+            intelligence_summary["highlights"], hide_index=True,
+            column_config={
+                "Ticker": st.column_config.TextColumn(pinned=True),
+                "Attention": st.column_config.ProgressColumn(min_value=0, max_value=100),
+            },
+        )
+    if intelligence_summary["decisions"]:
+        st.markdown("##### Watchlist and Discovery decisions")
+        st.dataframe(
+            intelligence_summary["decisions"], hide_index=True,
+            column_config={
+                "Ticker": st.column_config.TextColumn(pinned=True),
+                "Feed confidence": st.column_config.ProgressColumn(min_value=0, max_value=100),
+                "Committee score": st.column_config.ProgressColumn(min_value=0, max_value=100),
+                "Risk": st.column_config.ProgressColumn(min_value=0, max_value=100),
+            },
+        )
+    if intelligence_summary["themes"]:
+        with st.expander("Market Intelligence themes and limitations", icon=":material/topic:"):
+            st.dataframe(intelligence_summary["themes"], hide_index=True)
+            for error in intelligence_summary["errors"]:
+                st.error(error)
+            st.caption(intelligence_summary["disclosure"])
+    with st.container(horizontal=True):
+        st.metric("Today's posture", briefing["posture"], border=True)
+        st.metric("Market evidence", briefing["market"]["status"], border=True)
+        st.metric("Provider status", briefing["data"]["status"], border=True)
+        st.metric("Priority actions", len(briefing["actions"]), border=True)
+    if briefing["market"]["status"] == "Live saved evidence":
+        st.success(briefing["summary"], icon=":material/verified:")
+    elif briefing["market"]["status"] == "Missing":
+        st.info(briefing["summary"], icon=":material/info:")
+    else:
+        st.warning(briefing["summary"], icon=":material/warning:")
+    st.caption(
+        f"Market posture: {briefing['market']['label']} | "
+        f"Evidence as of: {briefing['market']['as_of'] or 'not available'} | "
+        f"Last source: {briefing['data']['last_source']}"
+    )
+    st.markdown("#### Review today")
+    if briefing["actions"]:
+        st.dataframe(briefing["actions"], hide_index=True)
+    else:
+        st.success("No urgent review action is present in saved evidence.", icon=":material/check_circle:")
+    left, right = st.columns(2)
+    with left:
+        with st.container(border=True):
+            st.markdown("##### Upcoming verified catalysts")
+            if briefing["catalysts"]:
+                st.dataframe(briefing["catalysts"], hide_index=True)
+            else:
+                st.info("No verified live catalyst is saved for the next 30 days.")
+    with right:
+        with st.container(border=True):
+            st.markdown("##### Active alerts")
+            if briefing["alerts"]:
+                st.dataframe(briefing["alerts"], hide_index=True)
+            else:
+                st.info("No unread saved alerts require review.")
+    st.markdown("#### Holdings review")
+    daily_holdings = repository.portfolio_holdings()
+    if daily_holdings:
+        daily_holding_guidance = build_holding_guidance(
+            daily_holdings, briefing_reports, active_configuration["freshness_days"],
+        )
+        st.dataframe(
+            daily_holding_guidance["rows"], hide_index=True,
+            column_config={
+                "Ticker": st.column_config.TextColumn(pinned=True),
+                "Direction": st.column_config.TextColumn(pinned=True),
+                "Risk": st.column_config.ProgressColumn(min_value=0, max_value=100),
+                "Entry readiness": st.column_config.ProgressColumn(min_value=0, max_value=100),
+            },
+            key="daily-holding-guidance",
+        )
+        st.caption(daily_holding_guidance["disclosure"])
+    else:
+        st.info("Save holdings in Holdings guidance to add company-level review priorities.")
+    with st.expander("Discovery ideas outside your radar", icon=":material/travel_explore:"):
+        if briefing["discovery"]:
+            st.dataframe(
+                briefing["discovery"], hide_index=True,
+                column_config={"Score": st.column_config.ProgressColumn(min_value=0, max_value=100)},
+            )
+        else:
+            st.info("No saved Discovery ideas are currently outside your radar.")
+    if briefing["data"]["status"] == "Degraded":
+        st.warning(briefing["data"]["note"], icon=":material/cloud_off:")
+    st.caption(briefing["disclosure"])
+
 if active_page == "Start here":
     st.subheader("Start here")
-    st.caption("Choose a company, see what evidence is ready, and complete the next research step. This view makes no provider requests until you click an action.")
+    st.caption("See the market at a glance, then choose a company when something needs deeper research. Quotes are cached for five minutes; FRED observations are cached for six hours.")
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.markdown("#### Live market pulse")
+        refresh_market_pulse = st.button(
+            "Refresh market pulse", icon=":material/refresh:", key="refresh-market-pulse"
+        )
+    if refresh_market_pulse:
+        cached_market = getattr(provider, "primary", provider)
+        market_namespace = getattr(cached_market, "namespace", None)
+        if market_namespace:
+            provider_cache.clear(market_namespace, "market_dashboard")
+    market_pulse_slot = st.container()
+    with market_pulse_slot.skeleton():
+        market_pulse = build_market_pulse(provider, macro_provider)
+        if market_pulse["equities"]:
+            with market_pulse_slot.container(horizontal=True):
+                for quote in market_pulse["equities"]:
+                    st.metric(
+                        quote["label"], f"${quote['price']:,.2f}",
+                        f"{quote['change_percent']:+.2f}% today" if quote["change_percent"] is not None else None,
+                        border=True,
+                    )
+        market_pulse_slot.markdown("##### Bonds and credit")
+        with market_pulse_slot.container(horizontal=True):
+            for quote in market_pulse["bonds"]:
+                st.metric(
+                    quote["label"], f"${quote['price']:,.2f}",
+                    f"{quote['change_percent']:+.2f}% today" if quote["change_percent"] is not None else None,
+                    border=True,
+                )
+        commodity_quotes = {quote["ticker"]: quote for quote in market_pulse["commodities"]}
+        market_pulse_slot.markdown("##### Precious metals")
+        with market_pulse_slot.container(horizontal=True):
+            for ticker, label in (("GC=F", "Gold"), ("SI=F", "Silver")):
+                quote = commodity_quotes.get(ticker)
+                if quote and quote.get("price") is not None:
+                    st.metric(
+                        label, f"${quote['price']:,.2f}",
+                        f"{quote['change_percent']:+.2f}% today" if quote.get("change_percent") is not None else "Daily move unavailable",
+                        border=True,
+                    )
+                else:
+                    st.metric(label, "Unavailable", "Live quote not returned", border=True)
+
+        market_pulse_slot.markdown("##### Oil and industrial signals")
+        with market_pulse_slot.container(horizontal=True):
+            for ticker in ("CL=F", "HG=F"):
+                quote = commodity_quotes.get(ticker)
+                if quote and quote.get("price") is not None:
+                    st.metric(
+                        quote["label"], f"${quote['price']:,.2f}",
+                        f"{quote['change_percent']:+.2f}% today" if quote.get("change_percent") is not None else "Daily move unavailable",
+                        border=True,
+                    )
+            for quote in market_pulse["currencies"]:
+                st.metric(
+                    quote["label"], f"${quote['price']:,.2f}",
+                    f"{quote['change_percent']:+.2f}% today" if quote["change_percent"] is not None else None,
+                    border=True,
+                )
+        rates = market_pulse.get("rates", {})
+        oil = market_pulse.get("oil")
+        with market_pulse_slot.container(horizontal=True):
+            st.metric(
+                "Market tone", market_pulse["tone"],
+                f"{market_pulse['positive_core_markets']} of {market_pulse['core_markets']} core markets up",
+                border=True,
+            )
+            if oil and oil["value"] is not None:
+                st.metric(
+                    "Official WTI benchmark", f"${oil['value']:,.2f} / barrel",
+                    f"{oil['change_percent']:+.2f}% - {oil['trend']}" if oil["change_percent"] is not None else oil["trend"],
+                    border=True,
+                )
+            for key in ("treasury_10y", "policy_rate", "inflation"):
+                indicator = rates.get(key)
+                if indicator and indicator["value"] is not None:
+                    st.metric(
+                        indicator["label"], f"{indicator['value']:.2f} {indicator['unit']}",
+                        f"{indicator['change_percent']:+.2f}% - {indicator['trend']}" if indicator["change_percent"] is not None else indicator["trend"],
+                        border=True,
+                    )
+        market_pulse_slot.info(market_pulse["market_summary"], icon=":material/monitoring:")
+        if market_pulse["status"] == "Unavailable":
+            market_pulse_slot.error("Live market pulse is unavailable. Review System -> Provider health.")
+        elif market_pulse["status"] == "Partial":
+            market_pulse_slot.warning("Some market-pulse sources are unavailable; available values remain source-labeled.")
+        market_pulse_slot.caption(
+            f"Market source: {market_pulse['market_source']} - Quote time: {market_pulse['market_as_of'] or 'unavailable'} - "
+            f"Macro source: {market_pulse['macro_source']} - FRED retrieval: {market_pulse['macro_as_of'] or 'unavailable'}"
+        )
+        market_pulse_slot.caption(market_pulse["disclosure"])
+        for pulse_error in market_pulse["errors"]:
+            market_pulse_slot.caption(f"Unavailable source: {pulse_error}")
+
+    st.markdown("#### Discovery opportunities")
+    start_discovery = repository.latest_discovery_run() or {}
+    opportunity_rows = [
+        {
+            "Ticker": row.get("Ticker"), "Research label": row.get("Research label"),
+            "Score": row.get("Discovery score"), "Price": row.get("Price"),
+            "Day move": row.get("Market change"), "Evidence": row.get("Data status"),
+            "Why it surfaced": row.get("Why it surfaced"),
+        }
+        for row in start_discovery.get("rows", [])
+        if row.get("Research label") != "Pass for now" and row.get("On radar") is not True
+    ][:5]
+    if opportunity_rows:
+        st.dataframe(
+            opportunity_rows, hide_index=True,
+            column_config={
+                "Ticker": st.column_config.TextColumn(pinned=True),
+                "Score": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f"),
+                "Price": st.column_config.NumberColumn(format="$%.2f"),
+                "Day move": st.column_config.NumberColumn(format="%+.2f%%"),
+            },
+            key="start-discovery-opportunities",
+        )
+        st.caption("Discovery identifies research opportunities, not automatic buys. Lower-evidence leads remain score-capped until history and fundamentals are confirmed.")
+    else:
+        st.info("No current Discovery candidate has enough saved evidence to display as a research opportunity.")
+    st.markdown("#### Company research")
     decision_watchlist = repository.watchlist()
     decision_positions = repository.portfolio_positions()
     decision_theses = repository.latest_theses()
@@ -447,7 +842,7 @@ if active_page == "Start here":
             try:
                 if quota_message := live_quota_message(provider, [home_ticker]):
                     raise ProviderError(quota_message)
-                with st.spinner(f"Building {home_ticker} research…"):
+                with st.spinner(f"Building {home_ticker} researchÃ¢â‚¬Â¦"):
                     st.session_state["report"] = analysis.analyze(
                         home_ticker, PRESETS[active_configuration["committee_preset"]],
                     )
@@ -474,7 +869,7 @@ if active_page == "Start here":
             try:
                 if quota_message := live_quota_message(provider, [home_ticker]):
                     raise ProviderError(quota_message)
-                with st.spinner(f"Refreshing critical evidence for {home_ticker}…"):
+                with st.spinner(f"Refreshing critical evidence for {home_ticker}Ã¢â‚¬Â¦"):
                     fresh_report = analysis.analyze(
                         home_ticker, PRESETS[active_configuration["committee_preset"]],
                     )
@@ -687,42 +1082,54 @@ if active_page == "Start here":
         st.rerun()
     st.caption(decision_center["disclosure"])
 
+if active_page == "Market intelligence":
+    render_market_intelligence_page(repository, provider_cache)
+
 if active_page == "Market":
-    st.subheader("Market environment")
-    try:
-        dashboard_environment = analyze_market_environment(event_provider.snapshot(), macro_provider.snapshot())
-        with st.container(horizontal=True):
-            st.metric("Environment score", f"{dashboard_environment['score']:.1f}/100", border=True)
-            st.metric("Market posture", dashboard_environment["label"], border=True)
-            st.metric("Economic events", len(dashboard_environment["events"]), border=True)
-        st.info(dashboard_environment["buying_context"])
-        st.dataframe(
-            [
-                {
-                    "Event": event["title"],
-                    "Category": event["category"],
-                    "Direction": event["expected_direction"],
-                    "Impact": event["impact"],
-                    "Confidence": event["confidence"],
-                    "Duration": event["duration"],
-                    "Affected sectors": ", ".join(event["affected_sectors"]),
-                }
-                for event in dashboard_environment["events"]
-            ],
-            column_config={
-                "Confidence": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d%%"),
-            },
-            hide_index=True,
-        )
-        with st.expander("How Atlas reached this view"):
-            st.write(dashboard_environment["macro_thesis"])
-            for event in dashboard_environment["events"]:
-                st.markdown(f"**{event['title']}**")
-                st.write(event["supporting_evidence"])
-                st.caption(f"Counterpoint: {event['counterpoint']} · Source: {event['source']}")
-        st.caption(f"Event source: {dashboard_environment['event_provider']} · Macro source: {dashboard_environment['macro_provider']}")
-    except (RuntimeError, ValueError) as exc:
-        st.warning(f"Market environment is temporarily unavailable: {exc}")
+    show_market_details = st.toggle(
+        "Load live market environment and calendar", value=False,
+        key="market-live-details",
+        help="Keep this off for instant Watchlist access. Turn it on only when you want fresh macro and calendar details.",
+    )
+    if show_market_details:
+        st.subheader("Market environment")
+        try:
+            dashboard_environment = analyze_market_environment(event_provider.snapshot(), macro_provider.snapshot())
+            with st.container(horizontal=True):
+                st.metric("Environment score", f"{dashboard_environment['score']:.1f}/100", border=True)
+                st.metric("Market posture", dashboard_environment["label"], border=True)
+                st.metric("Economic events", len(dashboard_environment["events"]), border=True)
+            st.info(dashboard_environment["buying_context"])
+            st.dataframe(
+                [
+                    {
+                        "Event": event["title"],
+                        "Category": event["category"],
+                        "Direction": event["expected_direction"],
+                        "Impact": event["impact"],
+                        "Confidence": event["confidence"],
+                        "Duration": event["duration"],
+                        "Affected sectors": ", ".join(event["affected_sectors"]),
+                    }
+                    for event in dashboard_environment["events"]
+                ],
+                column_config={
+                    "Confidence": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d%%"),
+                },
+                hide_index=True,
+            )
+            with st.expander("How Atlas reached this view"):
+                st.write(dashboard_environment["macro_thesis"])
+                for event in dashboard_environment["events"]:
+                    st.markdown(f"**{event['title']}**")
+                    st.write(event["supporting_evidence"])
+                    st.caption(f"Counterpoint: {event['counterpoint']} Ã‚Â· Source: {event['source']}")
+            st.caption(f"Event source: {dashboard_environment['event_provider']} Ã‚Â· Macro source: {dashboard_environment['macro_provider']}")
+        except (RuntimeError, ValueError) as exc:
+            st.warning(f"Market environment is temporarily unavailable: {exc}")
+
+    else:
+        st.caption("Live market environment and calendar details are paused so Watchlist controls remain responsive.")
 
     st.subheader("Watchlist")
     watchlist_notice = st.session_state.pop("watchlist_notice", None)
@@ -731,10 +1138,10 @@ if active_page == "Market":
             st.success(watchlist_notice[1])
         else:
             st.info(watchlist_notice[1])
-    st.caption("There is no watchlist size limit. Enter exact symbols and press Enter to add them without using an API request.")
+    st.caption("There is no watchlist size limit. Add exact stock or ETF symbols without using an API request.")
     with st.form("watchlist-direct-add", border=False):
         direct_tickers = st.text_input(
-            "Add exact ticker symbols", placeholder="AAPL, MSFT, NVDA",
+            "Add exact ticker symbols", placeholder="AAPL, SPY, QQQ",
             help="Enter one or several symbols separated by commas or spaces.",
         )
         add_direct = st.form_submit_button(
@@ -753,7 +1160,7 @@ if active_page == "Market":
                     repository.add_ticker(symbol)
             added = len(set(repository.watchlist()) - before)
             if added:
-                message = f"Added {added} new compan{'y' if added == 1 else 'ies'}: " + ", ".join(symbol.upper() for symbol in symbols)
+                message = f"Added {added} new securit{'y' if added == 1 else 'ies'}: " + ", ".join(symbol.upper() for symbol in symbols)
                 st.session_state["watchlist_notice"] = ("success", message)
             else:
                 st.session_state["watchlist_notice"] = ("info", "Those ticker symbols are already on the watchlist.")
@@ -776,62 +1183,72 @@ if active_page == "Market":
             st.info("No matching companies were returned. If you know the ticker, add it with the exact-symbol box above.")
         for match in search_results:
             with st.container(horizontal=True, vertical_alignment="center"):
-                st.write(f"**{match['symbol']}** — {match['name']}")
+                st.write(f"**{match['symbol']}** Ã¢â‚¬â€ {match['name']}")
                 if st.button("Add", key=f"add-search-{match['symbol']}"):
                     repository.add_ticker(match["symbol"])
                     st.session_state["watchlist_notice"] = (
-                        "success", f"Added {match['symbol']} — {match['name']} to the watchlist."
+                        "success", f"Added {match['symbol']} Ã¢â‚¬â€ {match['name']} to the watchlist."
                     )
                     st.rerun()
     watchlist = repository.watchlist()
     if not watchlist:
         st.info("Your watchlist is empty. Search above to add a company.")
-    for ticker in watchlist:
-        c1, c2 = st.columns([5, 1])
-        c1.write(ticker)
-        if c2.button("Remove", key=f"remove-{ticker}"):
-            repository.remove_ticker(ticker)
-            st.rerun()
+    if watchlist:
+        watchlist_columns = st.columns(3, gap="small")
+        for index, ticker in enumerate(watchlist):
+            with watchlist_columns[index % 3]:
+                with st.container(border=True, horizontal=True, vertical_alignment="center"):
+                    st.markdown(f"**{ticker}**")
+                    if st.button(
+                        "Remove", key=f"remove-{ticker}", icon=":material/close:",
+                        type="tertiary",
+                    ):
+                        repository.remove_ticker(ticker)
+                        st.rerun()
 
-    st.markdown("#### Earnings and catalyst calendar")
-    dashboard_calendar_snapshot = calendar_provider.snapshot()
-    if dashboard_calendar_snapshot.get("error"):
-        st.warning(
-            "One or more live calendar sources are temporarily unavailable. "
-            + ("Available or stale dates are labeled; stale dates cannot generate alerts." if dashboard_calendar_snapshot.get("events") else "No dates are being inferred.")
-        )
-    calendar_rows = global_calendar(dashboard_calendar_snapshot, watchlist)
-    if calendar_rows:
-        st.dataframe(
-            [{
-                "Date": event["date"], "Days": event["days_until"], "Event": event["title"],
-                "Category": event["category"], "Scope": event["scope"].title(),
-                "Importance": event["importance"], "Confidence": event["confidence"],
-                "Date status": event.get("timing_status", "Scheduled"),
-                "EPS estimate": event.get("eps_estimate"),
-                "Source": event.get("source", "Unknown"),
-            } for event in calendar_rows],
-            column_config={
-                "Date": st.column_config.DateColumn(format="MMM DD, YYYY"),
-                "Importance": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d"),
-                "Confidence": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d%%"),
-                "EPS estimate": st.column_config.NumberColumn(format="%.2f"),
-            },
-            hide_index=True,
-        )
-        source_status = "Live" if dashboard_calendar_snapshot.get("live") and not dashboard_calendar_snapshot.get("stale") else "Stale cache" if dashboard_calendar_snapshot.get("stale") else "Demo"
-        st.caption(
-            f"Source: {dashboard_calendar_snapshot['provider']} · {source_status} · "
-            f"{dashboard_calendar_snapshot.get('cache_status', 'Direct')} · Retrieved {dashboard_calendar_snapshot.get('retrieved_at', 'unknown')}"
-        )
-    elif not dashboard_calendar_snapshot.get("error"):
-        st.info("No recognized economic releases are scheduled in the next 180 days.")
-    with st.container(horizontal=True):
-        if st.button("Refresh live calendars", icon=":material/refresh:", key="refresh-live-calendars"):
-            provider_cache.clear("fred_calendar")
-            provider_cache.clear("alpha_vantage_earnings")
-            st.rerun()
-        st.caption("Earnings dates are provider estimates until the company confirms its reporting schedule.")
+    if show_market_details:
+        st.markdown("#### Earnings and catalyst calendar")
+        dashboard_calendar_snapshot = calendar_provider.snapshot()
+        if dashboard_calendar_snapshot.get("error"):
+            st.warning(
+                "One or more live calendar sources are temporarily unavailable. "
+                + ("Available or stale dates are labeled; stale dates cannot generate alerts." if dashboard_calendar_snapshot.get("events") else "No dates are being inferred.")
+            )
+        calendar_rows = global_calendar(dashboard_calendar_snapshot, watchlist)
+        if calendar_rows:
+            st.dataframe(
+                [{
+                    "Date": event["date"], "Days": event["days_until"], "Event": event["title"],
+                    "Category": event["category"], "Scope": event["scope"].title(),
+                    "Importance": event["importance"], "Confidence": event["confidence"],
+                    "Date status": event.get("timing_status", "Scheduled"),
+                    "EPS estimate": event.get("eps_estimate"),
+                    "Source": event.get("source", "Unknown"),
+                } for event in calendar_rows],
+                column_config={
+                    "Date": st.column_config.DateColumn(format="MMM DD, YYYY"),
+                    "Importance": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d"),
+                    "Confidence": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d%%"),
+                    "EPS estimate": st.column_config.NumberColumn(format="%.2f"),
+                },
+                hide_index=True,
+            )
+            source_status = "Live" if dashboard_calendar_snapshot.get("live") and not dashboard_calendar_snapshot.get("stale") else "Stale cache" if dashboard_calendar_snapshot.get("stale") else "Demo"
+            st.caption(
+                f"Source: {dashboard_calendar_snapshot['provider']} Ã‚Â· {source_status} Ã‚Â· "
+                f"{dashboard_calendar_snapshot.get('cache_status', 'Direct')} Ã‚Â· Retrieved {dashboard_calendar_snapshot.get('retrieved_at', 'unknown')}"
+            )
+        elif not dashboard_calendar_snapshot.get("error"):
+            st.info("No recognized economic releases are scheduled in the next 180 days.")
+        with st.container(horizontal=True):
+            if st.button("Refresh live calendars", icon=":material/refresh:", key="refresh-live-calendars"):
+                provider_cache.clear("fred_calendar")
+                provider_cache.clear("alpha_vantage_earnings")
+                st.rerun()
+            st.caption("Earnings dates are provider estimates until the company confirms its reporting schedule.")
+
+    else:
+        st.caption("Turn on live market details above when you want the earnings and catalyst calendar.")
 
     if watchlist:
         st.markdown("#### Ranked watchlist")
@@ -849,9 +1266,9 @@ if active_page == "Market":
                 calendar_snapshot = calendar_provider.snapshot()
                 benchmark_history = provider.history("SPY")
                 benchmark_daily_history = provider.daily_history("SPY")
-                progress = st.progress(0, text="Analyzing watchlist…")
+                progress = st.progress(0, text="Analyzing watchlistÃ¢â‚¬Â¦")
                 for index, symbol in enumerate(watchlist, start=1):
-                    progress.progress((index - 1) / len(watchlist), text=f"Analyzing {symbol}…")
+                    progress.progress((index - 1) / len(watchlist), text=f"Analyzing {symbol}Ã¢â‚¬Â¦")
                     analysis.analyze(
                         symbol,
                         PRESETS[watchlist_preset],
@@ -902,7 +1319,7 @@ if active_page == "Market":
                 )
             with st.expander("Why companies ranked this way"):
                 for row in ranking["rows"]:
-                    st.markdown(f"**#{row['Rank']} {row['Ticker']} — {row['Company']}**")
+                    st.markdown(f"**#{row['Rank']} {row['Ticker']} Ã¢â‚¬â€ {row['Company']}**")
                     st.write(row["Why"])
             ranking_weights = active_configuration["ranking_weights"]
             st.caption(
@@ -945,7 +1362,7 @@ if active_page == "Discover":
         run_discovery = st.form_submit_button("Scan market for new ideas", type="primary", icon=":material/travel_explore:")
     if run_discovery:
         try:
-            with st.status("Scanning the market and analyzing unfamiliar candidates…", expanded=True):
+            with st.status("Scanning the market and analyzing unfamiliar candidatesÃ¢â‚¬Â¦", expanded=True):
                 result = discovery_scanner.run(int(discovery_limit))
             st.session_state["discovery_result"] = result
             st.rerun()
@@ -960,21 +1377,28 @@ if active_page == "Discover":
             st.metric("Unavailable", len(discovery_result["failures"]), border=True)
         st.info(discovery_result["summary"], icon=":material/radar:")
         st.caption(
-            f"Candidate source: {discovery_result.get('market_source', 'Saved market feed')} · "
-            f"Market feed as of {discovery_result.get('market_as_of', 'unknown')} · Existing radar excluded before analysis."
+            f"Candidate source: {discovery_result.get('market_source', 'Saved market feed')} Ã‚Â· "
+            f"Market feed as of {discovery_result.get('market_as_of', 'unknown')} Ã‚Â· Existing radar excluded before analysis."
         )
         price_only_count = sum(row.get("Data status") == "Live price only" for row in discovery_result["rows"])
         sec_supported_count = sum(row.get("Data status") == "Live price + SEC" for row in discovery_result["rows"])
+        feed_only_count = sum(row.get("Data status") == "Live market feed only" for row in discovery_result["rows"])
         if sec_supported_count:
             st.success(
-                f"{sec_supported_count} candidate(s) combine live Tiingo market data with current SEC EDGAR "
+                f"{sec_supported_count} candidate(s) combine live market data (Tiingo or YahooQuery fallback) with current SEC EDGAR "
                 "filing fundamentals. Forward valuation estimates remain unavailable until Alpha Vantage resets."
             )
         if price_only_count:
             st.warning(
-                f"{price_only_count} candidate(s) use live Tiingo price and trend data only because Alpha Vantage "
+                f"{price_only_count} candidate(s) use live price and trend data (Tiingo or YahooQuery fallback) because Alpha Vantage "
                 "fundamentals are currently unavailable. These leads cannot receive a Strong candidate label. "
                 "Run full research after the Alpha Vantage daily budget resets."
+            )
+        if feed_only_count:
+            st.warning(
+                f"{feed_only_count} candidate(s) are verified live market movers, but deeper price history and "
+                "fundamentals could not be refreshed because a provider is temporarily rate-limited. Atlas shows "
+                "them as attention signals only and caps their scores below Watch/Strong-candidate levels."
             )
         monitor = discovery_result.get("monitor") or {}
         st.markdown("#### Discovery monitor")
@@ -1041,9 +1465,9 @@ if active_page == "Discover":
                 try:
                     if quota_message := live_quota_message(provider, finalists):
                         raise ProviderError(quota_message)
-                    progress = st.progress(0, text="Researching discovery finalists…")
+                    progress = st.progress(0, text="Researching discovery finalistsÃ¢â‚¬Â¦")
                     for index, symbol in enumerate(finalists, 1):
-                        progress.progress((index - 1) / len(finalists), text=f"Analyzing {symbol}…")
+                        progress.progress((index - 1) / len(finalists), text=f"Analyzing {symbol}Ã¢â‚¬Â¦")
                         analysis.analyze(symbol, PRESETS[active_configuration["committee_preset"]])
                     progress.progress(1.0, text="Finalist research complete")
                     st.success(f"Completed full Atlas research for {len(finalists)} finalist(s).")
@@ -1063,522 +1487,107 @@ if active_page == "Discover":
         st.info("Run the broad screen to create your first opportunity-discovery ranking.")
 
 if active_page == "Portfolio":
-    st.subheader("Portfolio exposure")
-    st.caption("Enter percentage allocations to assess concentration and shared research risks. No brokerage connection or trading is available.")
-    saved_positions = repository.portfolio_positions()
-    if saved_positions:
-        position_frame = pd.DataFrame([
-            {"Ticker": item["ticker"], "Allocation": item["allocation"]} for item in saved_positions
-        ])
-    else:
-        position_frame = pd.DataFrame({
-            "Ticker": pd.Series(dtype="string"),
-            "Allocation": pd.Series(dtype="float"),
-        })
-    edited_positions = st.data_editor(
-        position_frame,
-        key="portfolio-position-editor",
-        num_rows="dynamic",
-        hide_index=True,
-        column_config={
-            "Ticker": st.column_config.TextColumn("Ticker", required=True, pinned=True),
-            "Allocation": st.column_config.NumberColumn(
-                "Allocation %", min_value=0.0, max_value=100.0, step=1.0, format="%.1f%%", required=True,
-            ),
-        },
+    st.subheader("Holdings guidance")
+    st.caption(
+        "Track stocks and ETFs you actually own without maintaining portfolio percentages. "
+        "Your Watchlist remains separate and never implies ownership."
     )
-    scenario_positions = edited_positions.to_dict("records")
-    scenario_symbols = list(dict.fromkeys(
-        str(item.get("Ticker") or "").strip().upper() for item in scenario_positions
-        if str(item.get("Ticker") or "").strip()
+    saved_holdings = repository.portfolio_holdings()
+    holding_options = sorted(set(repository.watchlist() + repository.report_tickers() + saved_holdings))
+    selected_holdings = st.multiselect(
+        "Companies you currently hold", options=holding_options, default=saved_holdings,
+        accept_new_options=True, placeholder="Choose holdings or type a stock or ETF ticker",
+        key="portfolio-holdings-selector",
+        help="Only add companies you own. Add research ideas to the Watchlist instead.",
+    )
+    normalized_holdings = list(dict.fromkeys(
+        str(ticker).strip().upper() for ticker in selected_holdings if str(ticker).strip()
     ))
-    portfolio_actions = st.container(horizontal=True, vertical_alignment="bottom")
-    with portfolio_actions:
-        if st.button("Save allocations", type="primary", key="save-portfolio-allocations"):
-            try:
-                repository.save_portfolio_positions(scenario_positions)
-                st.success("Portfolio allocations saved.")
-            except (TypeError, ValueError) as exc:
-                st.error(f"Portfolio could not be saved: {exc}")
+    with st.container(horizontal=True, vertical_alignment="bottom"):
+        save_holdings = st.button(
+            "Save holdings", type="primary", icon=":material/save:", key="save-portfolio-holdings",
+        )
         portfolio_preset = st.selectbox(
-            "Refresh preset", list(PRESETS),
+            "Research approach", list(PRESETS),
             index=list(PRESETS).index(active_configuration["committee_preset"]),
             key="portfolio-refresh-preset",
         )
         refresh_portfolio = st.button(
-            "Refresh holding research", key="refresh-portfolio-research", disabled=not scenario_symbols,
+            "Refresh holding research", icon=":material/refresh:",
+            key="refresh-portfolio-research", disabled=not normalized_holdings,
         )
+    if save_holdings:
+        try:
+            repository.save_portfolio_holdings(normalized_holdings)
+            st.success("Holdings saved. No portfolio percentages are required.")
+            saved_holdings = normalized_holdings
+        except (TypeError, ValueError) as exc:
+            st.error(f"Holdings could not be saved: {exc}")
+
     if refresh_portfolio:
         try:
-            if quota_message := live_quota_message(provider, scenario_symbols):
+            if quota_message := live_quota_message(provider, normalized_holdings):
                 raise ProviderError(quota_message)
             macro_snapshot = macro_provider.snapshot()
             environment_snapshot = analyze_market_environment(event_provider.snapshot(), macro_snapshot)
             calendar_snapshot = calendar_provider.snapshot()
             benchmark_history = provider.history("SPY")
             benchmark_daily_history = provider.daily_history("SPY")
-            progress = st.progress(0, text="Refreshing portfolio research…")
-            for index, symbol in enumerate(scenario_symbols, start=1):
-                progress.progress((index - 1) / len(scenario_symbols), text=f"Analyzing {symbol}…")
+            progress = st.progress(0, text="Refreshing holding researchâ€¦")
+            for index, symbol in enumerate(normalized_holdings, start=1):
+                progress.progress((index - 1) / len(normalized_holdings), text=f"Analyzing {symbol}â€¦")
                 analysis.analyze(
                     symbol, PRESETS[portfolio_preset], macro_snapshot=macro_snapshot,
                     benchmark_history=benchmark_history, market_environment=environment_snapshot,
                     calendar_snapshot=calendar_snapshot, benchmark_daily_history=benchmark_daily_history,
                 )
-            progress.progress(1.0, text="Portfolio research refreshed")
-            st.success(f"Refreshed {len(scenario_symbols)} holding reports.")
+            progress.progress(1.0, text="Holding research refreshed")
+            st.success(f"Refreshed {len(normalized_holdings)} holding report(s).")
             st.rerun()
-        except (RuntimeError, ValueError) as exc:
-            st.error(f"Portfolio refresh failed: {exc}")
+        except (ProviderError, RuntimeError, ValueError) as exc:
+            st.error(f"Holding refresh failed: {exc}")
 
-    if scenario_symbols:
-        try:
-            portfolio_reports = repository.latest_reports(scenario_symbols)
-            portfolio_analysis = analyze_portfolio_exposure(
-                scenario_positions, portfolio_reports, active_configuration["freshness_days"],
-            )
-            with st.container(horizontal=True):
-                st.metric("Portfolio posture", portfolio_analysis["posture"], border=True)
-                st.metric(
-                    "Weighted risk", "N/A" if portfolio_analysis["weighted_risk"] is None else f"{portfolio_analysis['weighted_risk']:.1f}/100",
-                    border=True,
-                )
-                st.metric(
-                    "Entry readiness", "N/A" if portfolio_analysis["weighted_readiness"] is None else f"{portfolio_analysis['weighted_readiness']:.1f}/100",
-                    border=True,
-                )
-                st.metric(
-                    "Committee score", "N/A" if portfolio_analysis["weighted_committee"] is None else f"{portfolio_analysis['weighted_committee']:.1f}/100",
-                    border=True,
-                )
-                st.metric(
-                    "Weighted beta", "N/A" if portfolio_analysis["weighted_beta"] is None else f"{portfolio_analysis['weighted_beta']:.2f}",
-                    border=True,
-                )
-                st.metric("Effective positions", f"{portfolio_analysis['effective_positions']:.1f}", border=True)
-            portfolio_health = repository.latest_financial_health()
-            portfolio_health_map = {item["ticker"]: item for item in portfolio_health}
-            portfolio_trust = {
-                ticker: assess_evidence_trust(
-                    portfolio_reports.get(ticker), portfolio_health_map.get(ticker),
-                    active_configuration["freshness_days"],
-                ) for ticker in scenario_symbols
-            }
-            portfolio_guidance = build_beginner_guidance(
-                scenario_symbols, portfolio_reports, repository.latest_theses(), repository.alerts(100, unread_only=True),
-                [{"ticker": str(item.get("Ticker", "")).strip().upper(), "allocation": item.get("Allocation", 0)}
-                 for item in scenario_positions], repository.latest_valuations(),
-                active_configuration["freshness_days"], portfolio_health, portfolio_trust,
-            )
-            portfolio_sizing = {}
-            for ticker in scenario_symbols:
-                history = repository.position_plan_history(ticker, 1)
-                if history:
-                    portfolio_sizing[ticker] = history[0]
-            portfolio_action_plan = build_portfolio_action_plan(
-                portfolio_analysis, portfolio_guidance, portfolio_trust, portfolio_sizing,
-            )
-            st.markdown("#### Portfolio action plan")
-            st.caption(
-                "A prioritized weekly review based on saved evidence, trust, risk, concentration, and position ceilings. "
-                "Actions are review prompts, not trade instructions."
-            )
-            with st.container(horizontal=True):
-                st.metric("Do now", portfolio_action_plan["counts"]["Do now"], border=True)
-                st.metric("Review soon", portfolio_action_plan["counts"]["Review soon"], border=True)
-                st.metric("Monitor", portfolio_action_plan["counts"]["Monitor"], border=True)
-                st.metric(
-                    "Portfolio evidence trust",
-                    "N/A" if portfolio_action_plan["portfolio_trust"] is None else f"{portfolio_action_plan['portfolio_trust']}/100",
-                    border=True,
-                )
-            if portfolio_action_plan["counts"]["Do now"]:
-                st.warning(portfolio_action_plan["summary"], icon=":material/priority_high:")
-            else:
-                st.info(portfolio_action_plan["summary"], icon=":material/checklist:")
-            st.dataframe(
-                portfolio_action_plan["rows"], hide_index=True,
-                column_config={
-                    "Priority": st.column_config.TextColumn(pinned=True),
-                    "Ticker": st.column_config.TextColumn(pinned=True),
-                    "Current weight": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%"),
-                    "Saved ceiling": st.column_config.NumberColumn(format="%.1f%%"),
-                    "Room to ceiling": st.column_config.NumberColumn(format="%+.1f%%"),
-                    "Trust score": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f"),
-                    "Risk score": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f"),
-                },
-            )
-            if render_portfolio_action_plan_pdf:
-                st.download_button(
-                    "Download portfolio action plan PDF", data=render_portfolio_action_plan_pdf(portfolio_action_plan),
-                    file_name="atlas-portfolio-action-plan.pdf", mime="application/pdf",
-                    key="download-portfolio-action-plan", icon=":material/download:",
-                )
-            if portfolio_analysis["missing"]:
-                st.warning("Refresh holding research to cover: " + ", ".join(portfolio_analysis["missing"]))
-            if portfolio_analysis["warnings"]:
-                st.markdown("#### Exposure flags")
-                for warning in portfolio_analysis["warnings"]:
-                    message = f"**{warning['title']}:** {warning['message']}"
-                    if warning["severity"] == "High":
-                        st.error(message)
-                    else:
-                        st.warning(message)
-            if portfolio_analysis["rows"]:
-                st.markdown("#### Holding-level analysis")
-                holding_rows = [{key: value for key, value in row.items() if key != "report_id"} for row in portfolio_analysis["rows"]]
-                st.dataframe(
-                    holding_rows,
-                    column_config={
-                        "Ticker": st.column_config.TextColumn(pinned=True),
-                        "Portfolio weight": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%"),
-                        "Committee score": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f"),
-                        "Risk score": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f"),
-                        "Entry readiness": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f"),
-                    },
-                    hide_index=True,
-                )
-                sector_frame = pd.DataFrame(portfolio_analysis["sector_exposure"])
-                if not sector_frame.empty:
-                    st.markdown("#### Sector exposure")
-                    st.bar_chart(sector_frame, x="Sector", y="Allocation", horizontal=True)
-                if render_portfolio_pdf:
-                    st.download_button(
-                        "Download portfolio exposure PDF", data=render_portfolio_pdf(portfolio_analysis),
-                        file_name="atlas-portfolio-exposure.pdf", mime="application/pdf", key="download-portfolio-exposure",
-                    )
-            st.caption(portfolio_analysis["disclosure"])
-        except (TypeError, ValueError) as exc:
-            st.info(str(exc))
-    else:
-        st.info("Add a ticker and allocation to begin. You can test changes before saving them.")
-
-    st.markdown("#### Position-sizing and diversification planner")
-    st.caption(
-        "Estimate an educational position ceiling from a maximum loss budget and concentration limit. "
-        "Atlas does not place trades, and actual losses can exceed the estimate."
-    )
-    planner_symbols = sorted(set(
-        repository.watchlist() + repository.report_tickers()
-        + [item["ticker"] for item in repository.portfolio_positions()]
-    ))
-    if planner_symbols:
-        sizing_ticker = st.selectbox("Company to size", planner_symbols, key="position-sizing-company")
-        sizing_report = repository.latest_reports([sizing_ticker]).get(sizing_ticker)
-        sizing_health = next((
-            item for item in repository.latest_financial_health() if item["ticker"] == sizing_ticker
-        ), None)
-        sizing_preset = st.segmented_control(
-            "Sizing approach", list(SIZING_PRESETS), default="Balanced", key="position-sizing-preset",
+    if normalized_holdings:
+        holding_reports = repository.latest_reports(normalized_holdings)
+        holding_guidance = build_holding_guidance(
+            normalized_holdings, holding_reports, active_configuration["freshness_days"],
         )
-        preset_values = SIZING_PRESETS[sizing_preset]
-        report_price = float((sizing_report.company_metrics.get("price") if sizing_report else None) or 100)
-        with st.form("position-sizing-form", border=True):
-            with st.container(horizontal=True):
-                portfolio_value = st.number_input(
-                    "Portfolio value ($)", min_value=1.0, value=100000.0, step=1000.0,
-                    key=f"sizing-portfolio-{sizing_ticker}",
-                )
-                planned_entry = st.number_input(
-                    "Planned entry price ($)", min_value=0.01, value=report_price, step=1.0,
-                    key=f"sizing-entry-{sizing_ticker}",
-                )
-                invalidation_price = st.number_input(
-                    "Thesis-invalidation price ($)", min_value=0.01,
-                    value=round(report_price * 0.9, 2), step=1.0,
-                    key=f"sizing-invalidation-{sizing_ticker}",
-                )
-            with st.container(horizontal=True):
-                sizing_risk_percent = st.number_input(
-                    "Maximum portfolio risk (%)", min_value=0.1, max_value=10.0,
-                    value=float(preset_values["risk_percent"]), step=0.1,
-                    key=f"sizing-risk-{sizing_preset}",
-                )
-                sizing_max_allocation = st.number_input(
-                    "Maximum company allocation (%)", min_value=1.0, max_value=100.0,
-                    value=float(preset_values["max_allocation"]), step=1.0,
-                    key=f"sizing-allocation-{sizing_preset}",
-                )
-            calculate_position = st.form_submit_button(
-                "Calculate position ceiling", type="primary", icon=":material/calculate:",
-            )
-        if calculate_position:
-            try:
-                saved_allocations = repository.portfolio_positions()
-                existing_allocation = next((
-                    float(item["allocation"]) for item in saved_allocations if item["ticker"] == sizing_ticker
-                ), 0.0)
-                sector_allocation = 0.0
-                if sizing_report:
-                    saved_reports = repository.latest_reports([item["ticker"] for item in saved_allocations])
-                    selected_sector = sizing_report.company_metrics.get("sector")
-                    sector_allocation = sum(
-                        float(item["allocation"]) for item in saved_allocations
-                        if saved_reports.get(item["ticker"])
-                        and saved_reports[item["ticker"]].company_metrics.get("sector") == selected_sector
-                    )
-                st.session_state["position_plan"] = build_position_plan(
-                    sizing_ticker, portfolio_value, planned_entry, invalidation_price,
-                    sizing_risk_percent, sizing_max_allocation,
-                    risk_score=sizing_report.risk.get("score") if sizing_report else None,
-                    readiness_score=sizing_report.entry_readiness.get("score") if sizing_report else None,
-                    financial_health_score=sizing_health.get("score") if sizing_health else None,
-                    existing_allocation=existing_allocation, sector_allocation=sector_allocation,
-                    preset=sizing_preset,
-                )
-            except ValueError as exc:
-                st.error(str(exc))
-        position_plan = st.session_state.get("position_plan")
-        if position_plan and position_plan["ticker"] == sizing_ticker:
-            with st.container(horizontal=True):
-                st.metric("Suggested ceiling", f"{position_plan['suggested_shares']:,} shares", border=True)
-                st.metric("Position value", f"${position_plan['position_value']:,.2f}", border=True)
-                st.metric("Portfolio allocation", f"{position_plan['portfolio_allocation']:.2f}%", border=True)
-                st.metric("Loss at invalidation", f"${position_plan['loss_at_invalidation']:,.2f}", border=True)
-            st.info(position_plan["summary"])
-            st.caption(
-                f"Limiting factor: {position_plan['limiting_factor']} · risk budget "
-                f"${position_plan['risk_budget']:,.2f} · adjusted company limit "
-                f"{position_plan['adjusted_max_allocation']:.2f}%"
-            )
-            for modifier in position_plan["modifiers"]:
-                st.warning(modifier)
-            for warning in position_plan["warnings"]:
-                st.error(warning)
-            if st.button("Save sizing plan", icon=":material/save:", key="save-position-plan"):
-                version_id = repository.save_position_plan(position_plan)
-                st.success(f"Saved {sizing_ticker} sizing-plan version #{version_id}.")
-            sizing_history = repository.position_plan_history(sizing_ticker)
-            if sizing_history:
-                with st.expander(f"Saved sizing plans ({len(sizing_history)})"):
-                    st.dataframe([{
-                        "Version": item["id"], "Saved": item["saved_at"], "Preset": item["preset"],
-                        "Entry": item["entry_price"], "Invalidation": item["invalidation_price"],
-                        "Shares": item["suggested_shares"], "Position value": item["position_value"],
-                        "Allocation": item["portfolio_allocation"], "Modeled loss": item["loss_at_invalidation"],
-                    } for item in sizing_history], hide_index=True, column_config={
-                        "Entry": st.column_config.NumberColumn(format="$%.2f"),
-                        "Invalidation": st.column_config.NumberColumn(format="$%.2f"),
-                        "Position value": st.column_config.NumberColumn(format="$%.2f"),
-                        "Allocation": st.column_config.NumberColumn(format="%.2f%%"),
-                        "Modeled loss": st.column_config.NumberColumn(format="$%.2f"),
-                    })
-            st.caption(position_plan["disclosure"])
-    else:
-        st.info("Add a company to the watchlist or save a research report before creating a sizing plan.")
-
-if active_page == "Accuracy":
-    st.subheader("Decision accuracy")
-    st.caption(
-        "Track what happened after Atlas assigned a saved beginner label. Outcomes are measured against the S&P 500 "
-        "and never rewrite the evidence that existed when the label was captured."
-    )
-    accuracy_horizon = st.segmented_control(
-        "Outcome horizon", options=[7, 30, 90, 365], default=30,
-        format_func=lambda value: f"{value} days" if value < 365 else "1 year",
-        key="accuracy-horizon",
-    ) or 30
-    if st.button(
-        "Capture latest labels and update outcomes", type="primary", icon=":material/query_stats:",
-        key="capture-decision-labels",
-    ):
-        try:
-            accuracy_symbols = repository.report_tickers()
-            if not accuracy_symbols:
-                raise ValueError("Run Research for at least one company before tracking label outcomes.")
-            if quota_message := live_quota_message(provider, accuracy_symbols):
-                raise ProviderError(quota_message)
-            reports = repository.latest_reports(accuracy_symbols)
-            health = repository.latest_financial_health()
-            health_map = {item["ticker"]: item for item in health}
-            trust_map = {
-                ticker: assess_evidence_trust(
-                    reports.get(ticker), health_map.get(ticker), active_configuration["freshness_days"],
-                ) for ticker in accuracy_symbols
-            }
-            guidance = build_beginner_guidance(
-                accuracy_symbols, reports, repository.latest_theses(), repository.alerts(100, unread_only=True),
-                repository.portfolio_positions(), repository.latest_valuations(),
-                active_configuration["freshness_days"], health, trust_map,
-            )
-            guidance_map = {item["Ticker"]: item for item in guidance}
-            benchmark_history = provider.daily_history("SPY")
-            benchmark_price = float(benchmark_history[-1]["close"])
-            captured = 0
-            for ticker, report in reports.items():
-                snapshot = build_label_snapshot(
-                    report, guidance_map[ticker], trust_map[ticker], benchmark_price,
-                )
-                captured += int(repository.save_decision_snapshot(snapshot) is not None)
-            snapshots = repository.decision_snapshots()
-            histories = {ticker: provider.daily_history(ticker) for ticker in sorted({item["ticker"] for item in snapshots})}
-            updated = 0
-            for snapshot in snapshots:
-                evaluated = evaluate_snapshot(snapshot, histories[snapshot["ticker"]], benchmark_history)
-                if evaluated.get("outcomes") != snapshot.get("outcomes"):
-                    repository.update_decision_snapshot(snapshot["id"], evaluated)
-                    updated += 1
-            st.toast(
-                f"Captured {captured} new label snapshot(s) and updated {updated} outcome record(s).",
-                icon=":material/check_circle:",
-            )
-            st.rerun()
-        except (ProviderError, RuntimeError, TypeError, ValueError) as exc:
-            st.error(str(exc))
-
-    accuracy_summary = summarize_accuracy(repository.decision_snapshots(), int(accuracy_horizon))
-    with st.container(horizontal=True):
-        st.metric("Model capacity", accuracy_summary["capacity"], border=True)
-        st.metric("Saved snapshots", accuracy_summary["snapshots"], border=True)
-        st.metric("Completed directional", accuracy_summary["completed_directional"], border=True)
-        st.metric(
-            "Observed win rate", "N/A" if accuracy_summary["win_rate"] is None else f"{accuracy_summary['win_rate']:.1f}%",
-            border=True,
-        )
-        st.metric(
-            "Average vs S&P 500",
-            "N/A" if accuracy_summary["average_relative_return"] is None else f"{accuracy_summary['average_relative_return']:+.2f} pp",
-            border=True,
-        )
-        st.metric(
-            "Worst drawdown",
-            "N/A" if accuracy_summary["worst_drawdown"] is None else f"{accuracy_summary['worst_drawdown']:.2f}%",
-            border=True,
-        )
-    if accuracy_summary["capacity"] == "Insufficient":
-        st.warning(
-            "Accuracy evidence is still insufficient: at least 10 completed directional outcomes are required. "
-            "Pending and informational labels do not count.",
-            icon=":material/hourglass_top:",
-        )
-    else:
-        st.info(accuracy_summary["summary"], icon=":material/analytics:")
-    if accuracy_summary["rows"]:
-        st.markdown("#### Label outcomes")
+        with st.container(horizontal=True):
+            st.metric("Holdings monitored", len(normalized_holdings), border=True)
+            st.metric("Consider more", holding_guidance["counts"]["Consider more"], border=True)
+            st.metric("Consider less", holding_guidance["counts"]["Consider less"], border=True)
+            st.metric("High caution", sum(row["Caution"] == "High" for row in holding_guidance["rows"]), border=True)
+            st.metric("Research needed", holding_guidance["counts"]["Research needed"], border=True)
+        if any(row["Caution"] == "High" for row in holding_guidance["rows"]):
+            st.warning(holding_guidance["summary"], icon=":material/priority_high:")
+        else:
+            st.info(holding_guidance["summary"], icon=":material/monitoring:")
+        st.markdown("#### Holding-by-holding guidance")
         st.dataframe(
-            accuracy_summary["rows"], hide_index=True,
+            holding_guidance["rows"], hide_index=True,
             column_config={
                 "Ticker": st.column_config.TextColumn(pinned=True),
-                "Captured": st.column_config.DatetimeColumn(format="MMM DD, YYYY"),
-                "Start price": st.column_config.NumberColumn(format="$%.2f"),
-                "Company return": st.column_config.NumberColumn(format="%+.2f%%"),
-                "S&P 500 return": st.column_config.NumberColumn(format="%+.2f%%"),
-                "Relative return": st.column_config.NumberColumn(format="%+.2f pp"),
-                "Max drawdown": st.column_config.NumberColumn(format="%.2f%%"),
+                "Direction": st.column_config.TextColumn(pinned=True),
+                "Risk": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f"),
+                "Entry readiness": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f"),
             },
+            key="holding-guidance-table",
         )
-        if accuracy_summary["groups"]:
-            st.markdown("#### Accuracy breakdown")
-            st.dataframe(
-                accuracy_summary["groups"], hide_index=True,
-                column_config={
-                    "Completed": st.column_config.NumberColumn(format="%d"),
-                    "Win rate": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%"),
-                    "Average relative return": st.column_config.NumberColumn(format="%+.2f pp"),
-                },
-            )
-        if render_accuracy_report_pdf:
-            st.download_button(
-                "Download accuracy report PDF", data=render_accuracy_report_pdf(accuracy_summary),
-                file_name=f"atlas-accuracy-{accuracy_horizon}-day.pdf", mime="application/pdf",
-                key="download-accuracy-report", icon=":material/download:",
+        st.caption(holding_guidance["disclosure"])
+        with st.expander("How Atlas decides direction", icon=":material/help:"):
+            st.markdown(
+                """- **Consider more:** constructive live evidence, manageable risk, and sufficient entry readiness.
+- **Maintain / monitor:** the thesis remains reasonable but lacks a strong change signal.
+- **Consider less:** bearish committee evidence or elevated risk needs review.
+- **Research needed:** evidence is missing, stale, demo, or synthetic.
+
+Atlas intentionally does not calculate a target percentage because it cannot see your brokerage balance, tax situation, cash needs, or complete financial plan."""
             )
     else:
-        st.info("Capture the current saved labels to start the accuracy ledger. Outcomes will remain pending until each horizon elapses.")
-    st.caption(accuracy_summary["disclosure"])
-
-if active_page == "Financial health":
-    st.subheader("SEC financial health")
-    st.caption(
-        "Review up to five annual 10-K periods from SEC EDGAR. Atlas makes no SEC request until you click Analyze; "
-        "responses are cached for 24 hours."
-    )
-    monitor_watchlist = repository.watchlist()
-    st.markdown("#### Filing monitor")
-    st.caption(
-        "Check the watchlist for new 10-K or 10-Q accessions. Atlas saves a new health version only when "
-        "the newest filing changes and creates an alert for score moves of 10 points or more."
-    )
-    if st.button(
-        "Refresh SEC watchlist", type="primary", key="refresh-sec-watchlist",
-        disabled=not monitor_watchlist, icon=":material/refresh:",
-    ):
-        with st.status("Checking SEC filings…", expanded=True) as monitor_status:
-            monitor_result = SecMonitorService(
-                SecCompanyFactsProvider(provider_cache), repository,
-            ).refresh(monitor_watchlist)
-            st.session_state["sec_monitor_result"] = monitor_result
-            if monitor_result["failed"]:
-                monitor_status.update(label="SEC watchlist check completed with errors", state="error")
-            else:
-                monitor_status.update(label="SEC watchlist check complete", state="complete")
-    monitor_result = st.session_state.get("sec_monitor_result")
-    if monitor_result:
-        with st.container(horizontal=True):
-            st.metric("Companies checked", monitor_result["requested"], border=True)
-            st.metric("New filing versions", monitor_result["saved"], border=True)
-            st.metric("Unchanged", monitor_result["unchanged"], border=True)
-            st.metric("Alerts created", monitor_result["alerts_created"], border=True)
-            st.metric("Failed", monitor_result["failed"], border=True)
-        st.dataframe(monitor_result["rows"], hide_index=True)
-    latest_checks = repository.latest_sec_monitor_checks()
-    if latest_checks:
-        with st.expander(f"Latest monitor status ({len(latest_checks)} companies)"):
-            st.dataframe(latest_checks, hide_index=True)
-    elif not monitor_watchlist:
-        st.info("Add companies to the watchlist before running the SEC filing monitor.")
-
-    st.markdown("#### Single-company analysis")
-    sec_ticker = st.text_input("U.S. company ticker", value="AAPL", key="sec-financial-health-ticker").strip().upper()
-    if st.button("Analyze SEC filings", type="primary", key="analyze-sec-financial-health"):
-        try:
-            sec_snapshot = SecCompanyFactsProvider(provider_cache).company_facts(sec_ticker)
-            result = analyze_financial_health(sec_snapshot)
-            result["id"] = repository.save_financial_health(result)
-            st.session_state["financial_health_result"] = result
-            st.success(f"Saved {result['ticker']} SEC financial-health version #{result['id']}.")
-        except (ProviderError, ValueError) as exc:
-            st.error(str(exc))
-    financial_health = st.session_state.get("financial_health_result")
-    if financial_health:
-        st.markdown(f"#### {financial_health['company']} ({financial_health['ticker']})")
-        with st.container(horizontal=True):
-            st.metric("Health posture", financial_health["posture"], border=True)
-            st.metric("Trend score", f"{financial_health['score']}/100", border=True)
-            st.metric("Metric coverage", f"{financial_health['coverage']}%", border=True)
-            st.metric("CIK", financial_health["cik"], border=True)
-        st.info(financial_health["summary"])
-        latest_filing = financial_health.get("latest_filing") or {}
-        if latest_filing:
-            st.caption(
-                f"Latest detected filing: {latest_filing.get('form')} filed {latest_filing.get('filed')} · "
-                f"fiscal period {latest_filing.get('fiscal_period') or 'not reported'} · "
-                f"accession {latest_filing.get('accession')}"
-            )
-        st.dataframe(financial_health["rows"], hide_index=True)
-        if financial_health.get("quarterly_rows"):
-            st.markdown("##### Quarterly filing trends")
-            st.caption("Up to eight discrete SEC fiscal quarters. Missing fields remain blank rather than being treated as zero.")
-            st.dataframe(financial_health["quarterly_rows"], hide_index=True)
-        if financial_health["signals"]:
-            st.markdown("##### Latest annual changes")
-            st.dataframe(financial_health["signals"], hide_index=True)
-        st.caption(
-            f"Source: {financial_health['provider']} · {financial_health['cache_status']} · "
-            f"retrieved {financial_health['retrieved_at']}"
+        st.info(
+            "Add companies you currently own. For companies you are only considering, use Market and watchlist.",
+            icon=":material/info:",
         )
-        st.caption(financial_health["disclosure"])
-        health_history = repository.financial_health_history(financial_health["ticker"])
-        if health_history:
-            with st.expander(f"Saved SEC history ({len(health_history)})"):
-                st.dataframe([
-                    {"Version": item["id"], "Saved": item["saved_at"], "Score": item["score"],
-                     "Posture": item["posture"], "Coverage": item["coverage"]}
-                    for item in health_history
-                ], hide_index=True)
-    else:
-        st.info("Set SEC_USER_AGENT in .env to an application name and contact email, then analyze a U.S. public company.")
-
 
 if active_page == "Stress test":
     st.subheader("Portfolio stress testing")
@@ -1616,8 +1625,8 @@ if active_page == "Stress test":
         else:
             assumptions = SCENARIOS[scenario_name]
             st.caption(
-                f"Market {assumptions['market_shock']:+.0f}% · Rates {assumptions['rate_change_bps']:+.0f} bps · "
-                f"Inflation {assumptions['inflation_change']:+.1f} pp · Oil {assumptions['oil_change']:+.0f}%"
+                f"Market {assumptions['market_shock']:+.0f}% Ã‚Â· Rates {assumptions['rate_change_bps']:+.0f} bps Ã‚Â· "
+                f"Inflation {assumptions['inflation_change']:+.1f} pp Ã‚Â· Oil {assumptions['oil_change']:+.0f}%"
             )
             run_stress = st.button("Run stress test", type="primary", icon=":material/analytics:", key="run-preset-stress")
         if run_stress:
@@ -1683,7 +1692,7 @@ if active_page == "Valuation lab":
             defaults = suggested_assumptions(valuation_report, valuation_health)
             metrics = valuation_report.company_metrics
             st.caption(
-                f"Using report #{valuation_report.report_id} · {valuation_report.provider} · "
+                f"Using report #{valuation_report.report_id} Ã‚Â· {valuation_report.provider} Ã‚Â· "
                 f"report price ${float(metrics.get('price') or 0):,.2f}"
             )
             if valuation_health:
@@ -1735,7 +1744,7 @@ if active_page == "Valuation lab":
                     },
                 )
                 with st.container(horizontal=True):
-                    st.metric("Research entry range", f"${valuation['entry_low']:,.2f}–${valuation['entry_high']:,.2f}", border=True)
+                    st.metric("Research entry range", f"${valuation['entry_low']:,.2f}Ã¢â‚¬â€œ${valuation['entry_high']:,.2f}", border=True)
                     st.metric("Price-implied P/E", f"{valuation['implied_multiple']:.1f}x", border=True)
                     st.metric("Input coverage", f"{valuation['data_coverage']}%", border=True)
 
@@ -1807,17 +1816,17 @@ if active_page == "Research":
             )
         try:
             normalized_preview = normalize_weights(strategy_weights)
-            st.caption("Normalized weights: " + " · ".join(
+            st.caption("Normalized weights: " + " Ã‚Â· ".join(
                 f"{strategy} {weight:.1f}%" for strategy, weight in normalized_preview.items()
             ))
         except ValueError as exc:
             normalized_preview = {}
             st.error(str(exc))
-    if st.button("Run six-strategy analysis", type="primary", disabled=not ticker or not normalized_preview):
+    if st.button("Run seven-strategy analysis", type="primary", disabled=not ticker or not normalized_preview):
         try:
             if quota_message := live_quota_message(provider, [ticker]):
                 raise ProviderError(quota_message)
-            with st.spinner("Building evidence-based committee assessment…"):
+            with st.spinner("Building evidence-based committee assessmentÃ¢â‚¬Â¦"):
                 st.session_state["report"] = analysis.analyze(ticker, strategy_weights)
         except (RuntimeError, ValueError) as exc:
             st.error(str(exc))
@@ -1842,6 +1851,10 @@ if active_page == "Research":
         b.metric("Confidence", f"{report.committee_confidence}%")
         c.metric("Data as of", report.data_as_of[:19].replace("T", " ") + " UTC")
         st.write(report.executive_summary)
+        render_market_intelligence_snapshot(
+            repository, report.ticker,
+            sector=str(report.company_metrics.get("sector", "")).strip() or None,
+        )
         if render_report_pdf:
             st.download_button(
                 "Download PDF report",
@@ -1923,8 +1936,8 @@ if active_page == "Research":
                 width="stretch",
             )
             st.caption(
-                f"Annualized volatility: {performance['annualized_volatility']:.1f}% · "
-                f"{performance['observations']} monthly observations · Growth indexed to 100"
+                f"Annualized volatility: {performance['annualized_volatility']:.1f}% Ã‚Â· "
+                f"{performance['observations']} monthly observations Ã‚Â· Growth indexed to 100"
             )
         elif not hasattr(report, "performance"):
             st.info("This report predates historical performance. Run the analysis again to add the comparison.")
@@ -1951,9 +1964,9 @@ if active_page == "Research":
                     )
                 latest_cross = technical.get("latest_cross")
                 if latest_cross:
-                    st.caption(f"Latest signal: {latest_cross['label']} on {latest_cross['date']} · {technical['message']}")
+                    st.caption(f"Latest signal: {latest_cross['label']} on {latest_cross['date']} Ã‚Â· {technical['message']}")
                 else:
-                    st.caption(f"No crossover was detected in the available period · {technical['message']}")
+                    st.caption(f"No crossover was detected in the available period Ã‚Â· {technical['message']}")
                 st.caption("A Golden Cross is a technical trend signal, not a prediction or investment recommendation.")
         if environment:
             st.markdown("#### Market environment")
@@ -1979,7 +1992,7 @@ if active_page == "Research":
                 st.metric("Readiness", catalyst_calendar["readiness"], border=True)
                 st.metric("Timing risk", f"{catalyst_calendar['risk_score']}/100", border=True)
                 st.metric("Next event", next_event.get("title", "None available"), border=True)
-                st.metric("Days remaining", next_event.get("days_until", "—"), border=True)
+                st.metric("Days remaining", next_event.get("days_until", "Ã¢â‚¬â€"), border=True)
             if catalyst_calendar["readiness"] in {"Elevated", "Event imminent"}:
                 st.warning(catalyst_calendar["summary"])
             else:
@@ -2009,7 +2022,7 @@ if active_page == "Research":
                     st.metric("S&P 500", f"{backtest['benchmark_return']:+.1f}%", border=True)
                     st.metric("Maximum drawdown", f"{backtest['max_drawdown']:.1f}%", border=True)
                 st.line_chart(backtest["curve"], x="date", y=["Golden Cross strategy", "Buy and hold", "S&P 500"])
-                st.caption(f"{backtest['execution']} · {backtest['transaction_cost_bps']:.0f} bps per transaction · {backtest['disclosure']}")
+                st.caption(f"{backtest['execution']} Ã‚Â· {backtest['transaction_cost_bps']:.0f} bps per transaction Ã‚Â· {backtest['disclosure']}")
         if risk:
             st.markdown("#### Risk dashboard")
             with st.container(horizontal=True):
@@ -2031,18 +2044,18 @@ if active_page == "Research":
             if risk["flags"]:
                 st.markdown("**Priority risk flags**")
                 for flag in risk["flags"]:
-                    st.warning(f"{flag['severity']} · {flag['factor']}: {flag['message']}")
+                    st.warning(f"{flag['severity']} Ã‚Â· {flag['factor']}: {flag['message']}")
         if macro:
             st.markdown("#### Macro environment")
             indicators = macro["indicators"]
             columns = st.columns(len(indicators))
             for column, indicator in zip(columns, indicators.values()):
                 column.metric(indicator["label"], f"{indicator['value']:.2f} {indicator['unit']}")
-                column.caption(f"As of {indicator['observed_at']} · {indicator['series_id']}")
+                column.caption(f"As of {indicator['observed_at']} Ã‚Â· {indicator['series_id']}")
             stale = [indicator["label"] for indicator in indicators.values() if indicator["stale"]]
             if stale:
                 st.warning("Potentially stale macro series: " + ", ".join(stale))
-            st.caption(f"Source: {macro['provider']} · Retrieved {macro['retrieved_at'][:19].replace('T', ' ')} UTC")
+            st.caption(f"Source: {macro['provider']} Ã‚Â· Retrieved {macro['retrieved_at'][:19].replace('T', ' ')} UTC")
         for title, items in [
             ("Bull case", report.bull_case),
             ("Bear case", report.bear_case),
@@ -2057,7 +2070,7 @@ if active_page == "Research":
             with st.expander(f"{item.strategy}: {item.vote.title()} ({item.confidence}% confidence)"):
                 st.write(item.thesis)
                 for evidence in item.evidence:
-                    st.caption(f"{evidence.label}: {evidence.value} · {evidence.source} · {evidence.observed_at}")
+                    st.caption(f"{evidence.label}: {evidence.value} Ã‚Â· {evidence.source} Ã‚Â· {evidence.observed_at}")
 
 if active_page == "Backtest":
     st.subheader("Historical signal backtesting")
@@ -2073,7 +2086,7 @@ if active_page == "Backtest":
     )
     if st.button("Run backtest", type="primary", disabled=not backtest_ticker, key="run-backtest"):
         try:
-            with st.spinner("Running point-in-time crossover simulation…"):
+            with st.spinner("Running point-in-time crossover simulationÃ¢â‚¬Â¦"):
                 st.session_state["standalone_backtest"] = {
                     "ticker": backtest_ticker,
                     "result": backtest_golden_cross(
@@ -2108,7 +2121,7 @@ if active_page == "Backtest":
             else:
                 st.info("No completed entry/exit cycle occurred in the available period.")
             st.caption(
-                f"{result['strategy']} · {result['execution']} · {result['transaction_cost_bps']:.0f} bps per transaction · "
+                f"{result['strategy']} Ã‚Â· {result['execution']} Ã‚Â· {result['transaction_cost_bps']:.0f} bps per transaction Ã‚Â· "
                 f"{result['start_date']} through {result['end_date']}"
             )
             st.warning(result["disclosure"])
@@ -2136,7 +2149,7 @@ if active_page == "Compare":
     comparison_ready = 2 <= len(selected_tickers) <= 4 and bool(comparison_normalized)
     if st.button("Run comparison", type="primary", disabled=not comparison_ready):
         try:
-            with st.spinner("Building comparable research snapshots…"):
+            with st.spinner("Building comparable research snapshotsÃ¢â‚¬Â¦"):
                 st.session_state["comparison"] = ComparisonService(analysis, repository).compare(
                     selected_tickers, comparison_weights
                 )
@@ -2168,7 +2181,7 @@ if active_page == "Compare":
         st.caption("Each company is indexed to 100 at the beginning of the comparison period.")
         st.markdown("#### Strategy-by-strategy")
         st.dataframe(comparison["strategy_table"], hide_index=True, width="stretch")
-        st.caption("Committee weights: " + " · ".join(
+        st.caption("Committee weights: " + " Ã‚Â· ".join(
             f"{strategy} {weight:.1f}%" for strategy, weight in comparison["strategy_weights"].items()
         ))
 
@@ -2179,7 +2192,7 @@ if active_page == "Compare":
             saved = repository.get_comparison(saved_row["id"])
             if not saved:
                 continue
-            label = f"#{saved_row['id']} · {' vs '.join(saved['tickers'])} · {saved_row['created_at']}"
+            label = f"#{saved_row['id']} Ã‚Â· {' vs '.join(saved['tickers'])} Ã‚Â· {saved_row['created_at']}"
             with st.expander(label):
                 st.dataframe(saved["summary"], hide_index=True, width="stretch")
                 if render_comparison_pdf:
@@ -2366,7 +2379,7 @@ if active_page == "Thesis tracker":
             if next_earnings:
                 st.info(
                     f"Next estimated earnings date: {next_earnings['date']} "
-                    f"({next_earnings.get('days_until', '—')} days) · {next_earnings.get('source', 'Unknown source')}"
+                    f"({next_earnings.get('days_until', 'Ã¢â‚¬â€')} days) Ã‚Â· {next_earnings.get('source', 'Unknown source')}"
                 )
         else:
             st.warning("This company has no saved report yet. You can save the thesis now and run Research later.")
@@ -2444,7 +2457,7 @@ if active_page == "Alerts":
     def scheduled_research_monitor():
         scheduler_status = scheduler.status()
         if scheduler_status["due"]:
-            with st.status("Scheduled research refresh is running…", expanded=False) as run_status:
+            with st.status("Scheduled research refresh is runningÃ¢â‚¬Â¦", expanded=False) as run_status:
                 scheduled_result = scheduler.run("Scheduled")
                 if scheduled_result["status"] == "Complete":
                     run_status.update(label="Scheduled research refresh completed", state="complete")
@@ -2458,7 +2471,7 @@ if active_page == "Alerts":
             st.caption("Automatic research refresh is disabled.")
 
     st.subheader("Scheduled research")
-    st.caption("Schedules run while Atlas is open. Every completed refresh automatically updates reports and can scan alerts.")
+    st.caption("Schedules run while Atlas is open or through the installed Windows background task. Every completed refresh updates reports and can scan alerts.")
     scheduled_research_monitor()
     schedule = scheduler.configuration()
     schedule_intervals = {
@@ -2495,7 +2508,7 @@ if active_page == "Alerts":
     scheduler_actions = st.container(horizontal=True)
     with scheduler_actions:
         if st.button("Run scheduled workflow now", key="run-scheduled-workflow-now"):
-            with st.status("Refreshing scheduled research…", expanded=True) as manual_status:
+            with st.status("Refreshing scheduled researchÃ¢â‚¬Â¦", expanded=True) as manual_status:
                 manual_result = scheduler.run("Manual")
                 if manual_result["status"] == "Complete":
                     manual_status.update(label="Research refresh and alert scan completed", state="complete")
@@ -2658,7 +2671,7 @@ if active_page == "Provider health":
     if st.button("Refresh local telemetry", icon=":material/refresh:", key="refresh-provider-health"):
         st.rerun()
     st.caption(
-        "Use System → Data readiness to make explicit live connection tests. Those tests may consume provider requests; "
+        "Use System Ã¢â€ â€™ Data readiness to make explicit live connection tests. Those tests may consume provider requests; "
         "this health page does not."
     )
 
@@ -2699,7 +2712,7 @@ if active_page == "Data readiness":
     st.caption("A full Alpha Vantage test can use up to six requests. The hybrid test uses about three Alpha Vantage requests plus Tiingo history calls when uncached.")
 
     if run_demo_readiness:
-        with st.status("Validating demo providers…", expanded=True) as demo_status:
+        with st.status("Validating demo providersÃ¢â‚¬Â¦", expanded=True) as demo_status:
             demo_market_result = test_market_provider(
                 provider if provider.name.startswith("Demo") else CachedMarketDataProvider(DemoProvider(), provider_cache),
                 readiness_ticker, active_configuration["technical"]["long_window"],
@@ -2713,7 +2726,7 @@ if active_page == "Data readiness":
         st.rerun()
     if run_live_market:
         try:
-            with st.status("Testing Alpha Vantage endpoints…", expanded=True) as market_status:
+            with st.status("Testing Alpha Vantage endpointsÃ¢â‚¬Â¦", expanded=True) as market_status:
                 live_market_provider = CachedMarketDataProvider(
                     AlphaVantageProvider(usage_store=provider_cache), provider_cache
                 )
@@ -2728,10 +2741,11 @@ if active_page == "Data readiness":
             st.error(f"Alpha Vantage readiness test could not start: {exc}")
     if run_hybrid_market:
         try:
-            with st.status("Testing Tiingo and Alpha Vantage…", expanded=True) as hybrid_status:
+            with st.status("Testing Tiingo and Alpha VantageÃ¢â‚¬Â¦", expanded=True) as hybrid_status:
                 hybrid_provider = CachedMarketDataProvider(
                     HybridMarketDataProvider(
-                        AlphaVantageProvider(usage_store=provider_cache), TiingoProvider()
+                        AlphaVantageProvider(usage_store=provider_cache), TiingoProvider(),
+                        SecCompanyFactsProvider(provider_cache),
                     ),
                     provider_cache,
                 )
@@ -2746,7 +2760,7 @@ if active_page == "Data readiness":
             st.error(f"Tiingo hybrid readiness test could not start: {exc}")
     if run_live_macro:
         try:
-            with st.status("Testing FRED economic series…", expanded=True) as macro_status:
+            with st.status("Testing FRED economic seriesÃ¢â‚¬Â¦", expanded=True) as macro_status:
                 live_macro_provider = CachedEconomicDataProvider(FredProvider(), provider_cache)
                 live_macro_result = test_macro_provider(live_macro_provider)
                 repository.save_configuration("live_macro_readiness", live_macro_result)
@@ -2943,7 +2957,7 @@ if active_page == "Settings":
             st.error(f"Configuration import failed: {exc}")
 
     with st.expander("Methodology and safeguards"):
-        st.write("All scoring weights must total 100%. Moving-average periods must satisfy 5 ≤ short < long ≤ 500.")
+        st.write("All scoring weights must total 100%. Moving-average periods must satisfy 5 Ã¢â€°Â¤ short < long Ã¢â€°Â¤ 500.")
         st.write("Provider selection is controlled through the environment file so credentials are not exposed or rewritten by the app.")
         st.write("Every newly generated report stores a complete configuration snapshot for auditability.")
 
@@ -2984,7 +2998,7 @@ if active_page == "Settings":
     schedule_last = schedule_state["last_run"]
     with st.container(horizontal=True):
         if st.button("Run Discovery job now", icon=":material/play_arrow:", key="run-discovery-job-now"):
-            with st.status("Running the scheduled Discovery workflow…", expanded=True) as job_status:
+            with st.status("Running the scheduled Discovery workflowÃ¢â‚¬Â¦", expanded=True) as job_status:
                 job_result = discovery_scheduler.run("Manual", force=True)
                 if job_result["status"] == "Complete":
                     job_status.update(label="Discovery job completed", state="complete")
@@ -3013,11 +3027,11 @@ if active_page == "Report history":
     if not rows:
         st.info("No saved reports yet.")
     for row in rows:
-        with st.expander(f"#{row['id']} · {row['ticker']} · {row['created_at']}"):
+        with st.expander(f"#{row['id']} Ã‚Â· {row['ticker']} Ã‚Â· {row['created_at']}"):
             saved = repository.get(row["id"])
             if saved:
                 st.write(saved.executive_summary)
-                st.caption(f"Provider: {saved.provider} · Data as of: {saved.data_as_of}")
+                st.caption(f"Provider: {saved.provider} Ã‚Â· Data as of: {saved.data_as_of}")
                 if render_report_pdf:
                     st.download_button(
                         "Download saved report PDF",

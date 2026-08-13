@@ -39,10 +39,12 @@ Project Atlas is an **analysis-only** investment research application. It has no
 
 1. Create a virtual environment and install `requirements.txt`.
 2. Copy `.env.example` to `.env`.
-3. Leave `ATLAS_DATA_PROVIDER=demo`, set it to `alpha_vantage`, or use `hybrid` with free Alpha Vantage and Tiingo keys for long price history.
-4. Leave `ATLAS_MACRO_PROVIDER=demo`, or set it to `fred` and add a free FRED API key.
+3. The default `ATLAS_DATA_PROVIDER=hybrid` uses Alpha Vantage and SEC fundamentals, prefers Tiingo prices when configured, and automatically falls back to no-key YahooQuery prices, history, ETF metadata, and company information.
+4. The default `ATLAS_MACRO_PROVIDER=fred` requires a free FRED API key.
 5. Set `ATLAS_CALENDAR_PROVIDER=fred` to use official economic release dates from FRED. This uses the same FRED API key.
-6. Run `streamlit run app.py`.
+6. Optional: set `MARKETAUX_API_TOKEN` to enrich Start here news with MarketAux entity and sentiment data. The free public GDELT, Federal Reserve, SEC, and EIA feeds remain active without it.
+7. Run `streamlit run app.py`.
+8. Optional: run `.\.venv\Scripts\python.exe -m uvicorn atlas_api:app --host 127.0.0.1 --port 8000` for the cached FastAPI data service. Interactive API documentation is available at `http://127.0.0.1:8000/docs`.
 
 To use Financial health, set `SEC_USER_AGENT` to an application name and contact email, for example `Project Atlas research@example.com`. SEC data is requested only after clicking Analyze and is cached for 24 hours.
 The Financial health filing monitor checks watchlist companies on demand. It saves a new version only when the latest SEC accession changes and alerts when the financial-health score moves by at least 10 points.
@@ -56,7 +58,7 @@ Demo mode contains only AAPL, MSFT, NVDA, GOOG, GOOGL, and AMZN. Its values are 
 
 ## Data policy
 
-The production adapters call the documented Alpha Vantage, Tiingo, and FRED APIs and do not scrape web pages. Provider limits and licensing remain the operator's responsibility. Every report records provider and observation timestamps. Strategy conclusions are deterministic and traceable to displayed evidence.
+The production adapters use Alpha Vantage, Tiingo, FRED, SEC EDGAR, and YahooQuery. YahooQuery wraps an unofficial Yahoo Finance interface, so Atlas treats it as a timestamped fallback rather than a guaranteed real-time contractual feed. Provider limits, terms, and licensing remain the operator's responsibility. Every report records provider and observation timestamps. Strategy conclusions are deterministic and traceable to displayed evidence.
 
 ## Tests
 

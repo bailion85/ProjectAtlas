@@ -176,11 +176,12 @@ def test_hybrid_provider_uses_alpha_evidence_and_tiingo_prices():
     assert len(provider.daily_history("AAPL")) >= 200
 
 
-def test_six_agent_report_is_saved(tmp_path: Path):
+def test_seven_agent_report_is_saved(tmp_path: Path):
     repository = ReportRepository(tmp_path / "atlas.db")
     report = AnalysisService(DemoProvider(), repository).analyze("MSFT")
-    assert len(report.assessments) == 6
-    assert {a.strategy for a in report.assessments} == {"Value", "GARP", "Innovation", "Macro", "Quant", "Risk"}
+    assert len(report.assessments) == 7
+    assert {a.strategy for a in report.assessments} == {
+        "Value", "GARP", "Innovation", "Macro", "Quant", "Risk", "Market Intelligence"}
     assert report.report_id is not None
     assert repository.get(report.report_id).ticker == "MSFT"
     assert report.performance["periods"]["1Y"]["company"] != 0
@@ -207,11 +208,11 @@ def test_six_agent_report_is_saved(tmp_path: Path):
     assert report.configuration["version"] == 1
     assert report.configuration["profile"] == "Balanced"
     assert repository.get(report.report_id).configuration == report.configuration
-    assert len(report.macro["indicators"]) == 5
+    assert len(report.macro["indicators"]) == 6
     macro_assessment = next(item for item in report.assessments if item.strategy == "Macro")
     assert {evidence.label for evidence in macro_assessment.evidence} == {
         "Market environment score", "Inflation", "Federal funds rate", "10-year Treasury yield",
-        "Unemployment rate", "Real GDP growth"
+        "Unemployment rate", "Real GDP growth", "WTI crude oil"
     }
 
 
@@ -990,7 +991,8 @@ def test_committee_presets_normalize_to_one_hundred_percent():
     for preset in PRESETS.values():
         weights = normalize_weights(preset)
         assert sum(weights.values()) == 100
-        assert set(weights) == {"Value", "GARP", "Innovation", "Macro", "Quant", "Risk"}
+        assert set(weights) == {
+            "Value", "GARP", "Innovation", "Macro", "Quant", "Risk", "Market Intelligence"}
 
 
 def test_committee_rejects_zero_weights():
@@ -1034,7 +1036,7 @@ def test_comparison_is_ranked_and_saved(tmp_path: Path):
     assert comparison["tickers"] == ["AAPL", "MSFT"]
     assert [row["Rank"] for row in comparison["summary"]] == [1, 2]
     assert comparison["summary"][0]["Score"] >= comparison["summary"][1]["Score"]
-    assert len(comparison["strategy_table"]) == 6
+    assert len(comparison["strategy_table"]) == 7
     assert len(comparison["performance_history"]) == 61
     saved = repository.get_comparison(comparison["comparison_id"])
     assert saved["strategy_weights"] == normalize_weights(PRESETS["Balanced"])
@@ -1739,6 +1741,17 @@ def test_discovery_rejects_short_price_history():
         raise AssertionError("Expected short history to fail")
 
 
+
+def test_market_feed_candidate_remains_visible_when_enrichment_is_rate_limited():
+    from core.services.opportunity_discovery_service import score_market_feed_candidate
+    row = score_market_feed_candidate(
+        {"ticker": "SMCI", "price": 42.5, "change_percentage": 6.2, "volume": 12_000_000},
+        "Alpha Vantage", "Tiingo request failed: 429 Too Many Requests",
+    )
+    assert row["Ticker"] == "SMCI"
+    assert row["Data status"] == "Live market feed only"
+    assert row["Research label"] == "Market-feed lead"
+    assert row["Discovery score"] < 55
 def test_discovery_pdf_is_generated():
     provider = DemoProvider()
     result = build_discovery_result([
@@ -1866,3 +1879,17 @@ def test_provider_health_explains_missing_configuration_and_failures():
     assert result["overall"] == "Action required"
     assert result["action_required"] >= 2
     assert result["failures"][0]["Details"] == "Quota exhausted"
+
+
+def test_macro_score_factors_oil_by_sector():
+    energy_macro = DemoEconomicProvider().snapshot()
+    industrial_macro = DemoEconomicProvider().snapshot()
+    energy_macro["indicators"]["oil_wti"]["value"] = 105.0
+    industrial_macro["indicators"]["oil_wti"]["value"] = 105.0
+
+    energy_score, energy_thesis = score_macro_environment("Energy", energy_macro)
+    industrial_score, industrial_thesis = score_macro_environment("Industrials", industrial_macro)
+
+    assert energy_score > industrial_score
+    assert "$105.00 per barrel" in energy_thesis
+    assert "input-cost headwind" in industrial_thesis

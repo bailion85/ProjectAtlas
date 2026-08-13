@@ -9,6 +9,8 @@ from typing import Any, Iterator
 
 from core.models.research import AgentAssessment, Evidence, ResearchReport
 
+REPORT_REPOSITORY_VERSION = 2
+
 
 class ReportRepository:
     def __init__(self, path: str | Path = "data/atlas.db"):
@@ -46,6 +48,13 @@ class ReportRepository:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS portfolio_positions (ticker TEXT PRIMARY KEY, allocation REAL NOT NULL, "
                 "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS portfolio_holdings (ticker TEXT PRIMARY KEY, "
+                "added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+            db.execute(
+                "INSERT OR IGNORE INTO portfolio_holdings(ticker) SELECT ticker FROM portfolio_positions"
             )
             db.execute(
                 "CREATE TABLE IF NOT EXISTS scheduler_runs (id INTEGER PRIMARY KEY, started_at TEXT NOT NULL, "
@@ -115,6 +124,21 @@ class ReportRepository:
         with self._connect() as db:
             db.execute("DELETE FROM watchlist WHERE ticker = ?", (ticker,))
 
+    def portfolio_holdings(self) -> list[str]:
+        """Return companies held, without requiring allocation maintenance."""
+        with self._connect() as db:
+            return [row["ticker"] for row in db.execute(
+                "SELECT ticker FROM portfolio_holdings ORDER BY ticker"
+            )]
+
+    def save_portfolio_holdings(self, tickers: list[str]) -> None:
+        normalized = list(dict.fromkeys(_normalize_ticker(str(ticker)) for ticker in tickers))
+        with self._connect() as db:
+            db.execute("DELETE FROM portfolio_holdings")
+            db.executemany(
+                "INSERT INTO portfolio_holdings(ticker) VALUES (?)",
+                ((ticker,) for ticker in normalized),
+            )
     def portfolio_positions(self) -> list[dict[str, Any]]:
         with self._connect() as db:
             return [dict(row) for row in db.execute(

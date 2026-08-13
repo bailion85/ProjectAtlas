@@ -8,16 +8,16 @@ from core.services.committee_service import PRESETS
 from core.services.market_regime_service import analyze_market_environment
 
 
-SCHEDULER_SERVICE_VERSION = 2
+SCHEDULER_SERVICE_VERSION = 3
 DEFAULT_SCHEDULE = {
     "enabled": False,
     "interval_hours": 24,
-    "scope": "Watchlist and portfolio",
+    "scope": "Watchlist and holdings",
     "preset": "Balanced",
     "retry_limit": 1,
     "scan_alerts": True,
 }
-SCOPES = ("Watchlist", "Portfolio", "Watchlist and portfolio")
+SCOPES = ("Watchlist", "Holdings", "Watchlist and holdings")
 
 
 class ScheduledResearchService:
@@ -34,7 +34,7 @@ class ScheduledResearchService:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def configuration(self) -> dict[str, Any]:
-        return {**DEFAULT_SCHEDULE, **(self.repository.configuration("scheduler") or {})}
+        return validate_schedule(self.repository.configuration("scheduler") or {})
 
     def save_configuration(self, configuration: dict[str, Any]) -> dict[str, Any]:
         validated = validate_schedule(configuration)
@@ -75,7 +75,8 @@ class ScheduledResearchService:
         provider_status = self.market_provider.status() if hasattr(self.market_provider, "status") else {}
         remaining = provider_status.get("quota_remaining")
         estimate = estimator(symbols) if estimator else 0
-        if remaining is not None and estimate > remaining:
+        if (remaining is not None and estimate > remaining and
+                not getattr(self.market_provider, "supports_no_credit_research", False)):
             errors.append(
                 f"Scheduled refresh needs about {estimate} Alpha Vantage requests, but only "
                 f"{remaining} remain in Atlas's daily budget. No live requests were made."
@@ -118,13 +119,15 @@ class ScheduledResearchService:
         return self.repository.scheduler_runs(1)[0]
 
     def _symbols(self, scope: str) -> list[str]:
-        watchlist = self.repository.watchlist() if scope in {"Watchlist", "Watchlist and portfolio"} else []
-        portfolio = [item["ticker"] for item in self.repository.portfolio_positions()] if scope in {"Portfolio", "Watchlist and portfolio"} else []
-        return list(dict.fromkeys(watchlist + portfolio))
-
+        watchlist = self.repository.watchlist() if scope in {"Watchlist", "Watchlist and holdings"} else []
+        holdings = self.repository.portfolio_holdings() if scope in {"Holdings", "Watchlist and holdings"} else []
+        return list(dict.fromkeys(watchlist + holdings))
 
 def validate_schedule(configuration: dict[str, Any]) -> dict[str, Any]:
     result = {**DEFAULT_SCHEDULE, **configuration}
+    result["scope"] = {
+        "Portfolio": "Holdings", "Watchlist and portfolio": "Watchlist and holdings",
+    }.get(result["scope"], result["scope"])
     if result["scope"] not in SCOPES:
         raise ValueError("Choose a valid scheduled-research scope.")
     if result["preset"] not in PRESETS:

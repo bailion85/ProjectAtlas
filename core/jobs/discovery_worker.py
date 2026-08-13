@@ -10,6 +10,7 @@ from core.providers.demo_provider import DemoProvider
 from core.providers.fallback_provider import FallbackMarketDataProvider
 from core.providers.hybrid_provider import HybridMarketDataProvider
 from core.providers.market_provider import AlphaVantageProvider
+from core.providers.sec_provider import SecCompanyFactsProvider
 from core.providers.tiingo_provider import TiingoProvider
 from core.services.discovery_scan_service import DiscoveryScanService
 from core.services.discovery_scheduler_service import ScheduledDiscoveryService
@@ -24,6 +25,7 @@ def main() -> int:
     if provider_name == "hybrid":
         base = HybridMarketDataProvider(
             AlphaVantageProvider(usage_store=cache), TiingoProvider(),
+            SecCompanyFactsProvider(cache),
         )
     elif provider_name == "alpha_vantage":
         base = AlphaVantageProvider(usage_store=cache)

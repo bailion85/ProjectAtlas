@@ -67,9 +67,14 @@ class ProviderCache:
                 (key, namespace, operation, now, now + ttl_seconds, payload),
             )
 
-    def clear(self, namespace: str | None = None) -> None:
+    def clear(self, namespace: str | None = None, operation: str | None = None) -> None:
         with self._connect() as db:
-            if namespace:
+            if namespace and operation:
+                db.execute(
+                    "DELETE FROM provider_cache WHERE namespace = ? AND operation = ?",
+                    (namespace, operation),
+                )
+            elif namespace:
                 db.execute("DELETE FROM provider_cache WHERE namespace = ?", (namespace,))
             else:
                 db.execute("DELETE FROM provider_cache")

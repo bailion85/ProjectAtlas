@@ -41,6 +41,48 @@ class DemoEconomicEventProvider(EconomicEventProvider):
             event["published_at"] = (now - timedelta(days=age)).isoformat()
         return {"provider": self.name, "retrieved_at": now.isoformat(), "events": [event for event, _ in events]}
 
+class CalendarEconomicEventProvider(EconomicEventProvider):
+    """Convert a live catalyst calendar into neutral, traceable regime events.
+
+    A calendar establishes that an event is scheduled; it does not establish a
+    bullish or bearish outcome. Atlas therefore records the event with a neutral
+    direction instead of inventing a directional market signal.
+    """
+
+    name = "Official catalyst calendar events"
+
+    def __init__(self, calendar_provider: Any):
+        self.calendar_provider = calendar_provider
+
+    def snapshot(self) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        calendar = self.calendar_provider.snapshot()
+        events = []
+        for item in calendar.get("events", []):
+            if item.get("source_live") is not True or item.get("source_stale"):
+                continue
+            events.append({
+                "title": item.get("title", "Scheduled market event"),
+                "category": item.get("category", "Calendar"),
+                "direction": 0,
+                "confidence": item.get("confidence", 50),
+                "duration": "Event window",
+                "affected_sectors": item.get("affected", []),
+                "supporting_evidence": item.get("rationale", "Officially scheduled market event."),
+                "counterpoint": "The direction and magnitude of the market response are not known in advance.",
+                "source": item.get("source", calendar.get("provider", self.name)),
+                "source_url": item.get("source_url"),
+                "event_date": item.get("date"),
+                "published_at": calendar.get("retrieved_at", now.isoformat()),
+            })
+        return {
+            "provider": calendar.get("provider", self.name),
+            "retrieved_at": calendar.get("retrieved_at", now.isoformat()),
+            "live": bool(calendar.get("live")),
+            "stale": bool(calendar.get("stale")),
+            "events": events,
+            "error": calendar.get("error"),
+        }
 
 def _event(title: str, category: str, direction: int, confidence: int, age_days: int,
            duration: str, sectors: list[str], support: str, counterpoint: str) -> tuple[dict[str, Any], int]:

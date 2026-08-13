@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-OPPORTUNITY_DISCOVERY_SERVICE_VERSION = 5
+OPPORTUNITY_DISCOVERY_SERVICE_VERSION = 6
 LIVE_UNIVERSE = [
     "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "BRK.B", "LLY", "AVGO", "JPM",
     "V", "XOM", "UNH", "MA", "COST", "HD", "PG", "JNJ", "ABBV", "WMT",
@@ -118,8 +118,7 @@ def score_candidate(
                        "Live price + SEC" if sec_supported else "Live price only",
         "Evidence coverage": "Full preliminary screen" if alpha_fundamentals_available else
                              "Price, trend, and SEC filing fundamentals" if sec_supported else "Price and trend only",
-        "Provider": f"{snapshot.get('source') or provider_name} + SEC EDGAR" if sec_supported else
-                    snapshot.get("source") or provider_name,
+        "Provider": _provider_label(snapshot.get("source") or provider_name, sec_supported),
         "SEC health": financial_health.get("score") if sec_supported else None,
         "SEC posture": financial_health.get("posture") if sec_supported else None,
         "Latest SEC filing": (financial_health.get("latest_filing") or {}).get("filed") if sec_supported else None,
@@ -129,6 +128,31 @@ def score_candidate(
     }
 
 
+
+def score_market_feed_candidate(source: dict[str, Any], provider_name: str, limitation: str) -> dict[str, Any]:
+    """Keep a verified live mover visible when deeper enrichment is temporarily unavailable."""
+    ticker = str(source.get("ticker", "")).strip().upper()
+    price = _number(source.get("price"))
+    change = _number(source.get("change_percentage"))
+    volume = int(_number(source.get("volume")) or 0)
+    if not ticker or price is None:
+        raise ValueError("The live market feed did not include a usable ticker and price.")
+    activity = _clamp(35 + min(volume / 1_000_000, 40))
+    direction = 50 if change is None else _clamp(50 + change * 4)
+    score = round(min(activity * .55 + direction * .45, 54.9), 1)
+    return {
+        "Ticker": ticker, "Company": ticker, "Sector": "Pending research",
+        "Discovery score": score, "Research label": "Market-feed lead",
+        "Price": price, "Forward P/E": None, "PEG": None,
+        "Valuation": 50.0, "Quality": 50.0, "Growth": 50.0,
+        "Trend": round(direction, 1), "Risk fit": 50.0, "90-day momentum": None,
+        "Data status": "Live market feed only", "Evidence coverage": "Live price, daily move, and volume",
+        "Provider": provider_name, "SEC health": None, "SEC posture": None,
+        "Latest SEC filing": None, "Observed": None,
+        "Why it surfaced": "unusual market activity in the live movers feed",
+        "What could go wrong": "historical trend and company fundamentals could not be refreshed; treat this as an attention signal only",
+        "Research limitation": limitation,
+    }
 def build_discovery_result(rows: list[dict[str, Any]], failures: list[dict[str, str]], radar: set[str]) -> dict[str, Any]:
     ranked = sorted(rows, key=lambda row: (-row["Discovery score"], row["Ticker"]))
     for index, row in enumerate(ranked, 1):
@@ -142,6 +166,9 @@ def build_discovery_result(rows: list[dict[str, Any]], failures: list[dict[str, 
         "disclosure": "Discovery scores are preliminary research filters, not investment recommendations. Confirm live evidence, valuation assumptions, diversification, and risks before making any decision.",
     }
 
+
+def _provider_label(source: str, sec_supported: bool) -> str:
+    return source if not sec_supported or "SEC EDGAR" in source else f"{source} + SEC EDGAR"
 
 def _number(value: Any) -> float | None:
     try: return float(value) if value is not None else None

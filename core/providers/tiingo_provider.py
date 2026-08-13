@@ -8,7 +8,7 @@ from urllib.parse import quote
 from core.providers.market_provider import MarketDataProvider, ProviderError
 
 
-TIINGO_PROVIDER_VERSION = 2
+TIINGO_PROVIDER_VERSION = 4
 
 
 class TiingoProvider(MarketDataProvider):
@@ -90,6 +90,27 @@ class TiingoProvider(MarketDataProvider):
         observed = next((item.get("timestamp") or item.get("quoteTimestamp") for item in payload if item), None)
         return {"provider": f"{self.name} broad-market scan", "last_updated": observed, "rows": grouped}
 
+    def market_dashboard(self, tickers: tuple[str, ...]) -> dict[str, Any]:
+        """Return one batched IEX quote set for broad-market dashboard symbols."""
+        payload = self._iex(tuple(dict.fromkeys(symbol.upper() for symbol in tickers)))
+        quotes = []
+        for item in payload:
+            symbol = str(item.get("ticker", "")).upper()
+            price = _value(item, "tngoLast", "last", "mid", "prevClose")
+            previous = _value(item, "prevClose")
+            if not symbol or price is None or not previous:
+                continue
+            quotes.append({
+                "ticker": symbol,
+                "price": price,
+                "previous_close": previous,
+                "change_percent": (price / previous - 1) * 100,
+                "volume": int(_value(item, "volume") or 0),
+                "observed_at": item.get("timestamp") or item.get("quoteTimestamp"),
+            })
+        if not quotes:
+            raise ProviderError("Tiingo returned no usable market-dashboard quotes.")
+        return {"provider": "Tiingo IEX", "quotes": quotes}
     def _iex(self, tickers: tuple[str, ...]) -> list[dict[str, Any]]:
         try:
             import requests
@@ -112,12 +133,28 @@ class TiingoProvider(MarketDataProvider):
             raise ProviderError("Tiingo returned an unexpected broad-market response.")
         return payload
 
+    def security_metadata(self, ticker: str) -> dict[str, Any]:
+        metadata = self._get(ticker, endpoint="")
+        description = str(metadata.get("description") or "")
+        name = str(metadata.get("name") or ticker.upper())
+        text = f"{name} {description}".lower()
+        etf_markers = (
+            "exchange traded fund", "exchange-traded fund", "historical etf prices",
+            " etf ", " etf shares", "index fund etf",
+        )
+        asset_type = "ETF" if any(marker in f" {text} " for marker in etf_markers) else "Stock"
+        return {
+            "symbol": ticker.upper(), "name": name, "description": description,
+            "asset_type": asset_type, "exchange": metadata.get("exchangeCode"),
+        }
     def snapshot(self, ticker: str) -> dict[str, Any]:
         metadata = self._get(ticker, endpoint="")
         quote_data = self.price_snapshot(ticker)
         return {
             "symbol": ticker.upper(), "name": metadata.get("name") or ticker.upper(),
-            "description": metadata.get("description") or "", "sector": None, "industry": None,
+            "description": metadata.get("description") or "", "asset_type": metadata.get("asset_type", "Stock"),
+            "sector": "Diversified fund" if metadata.get("asset_type") == "ETF" else None,
+            "industry": "ETF" if metadata.get("asset_type") == "ETF" else None,
             **quote_data, "market_cap": None, "pe_ratio": None,
             "forward_pe": None, "peg_ratio": None, "price_to_book": None,
             "profit_margin": None, "operating_margin": None, "return_on_equity": None,

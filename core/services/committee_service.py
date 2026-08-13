@@ -5,12 +5,13 @@ from typing import Any
 from core.models.research import AgentAssessment, Vote
 
 
-STRATEGIES = ("Value", "GARP", "Innovation", "Macro", "Quant", "Risk")
+COMMITTEE_SERVICE_VERSION = 2
+STRATEGIES = ("Value", "GARP", "Innovation", "Macro", "Quant", "Risk", "Market Intelligence")
 PRESETS = {
     "Balanced": {strategy: 1 for strategy in STRATEGIES},
-    "Growth": {"Value": 10, "GARP": 25, "Innovation": 25, "Macro": 10, "Quant": 20, "Risk": 10},
-    "Value": {"Value": 35, "GARP": 20, "Innovation": 5, "Macro": 10, "Quant": 10, "Risk": 20},
-    "Defensive": {"Value": 20, "GARP": 10, "Innovation": 5, "Macro": 20, "Quant": 10, "Risk": 35},
+    "Growth": {"Value": 8, "GARP": 23, "Innovation": 23, "Macro": 9, "Quant": 18, "Risk": 9, "Market Intelligence": 10},
+    "Value": {"Value": 32, "GARP": 18, "Innovation": 5, "Macro": 9, "Quant": 9, "Risk": 18, "Market Intelligence": 9},
+    "Defensive": {"Value": 18, "GARP": 9, "Innovation": 5, "Macro": 18, "Quant": 9, "Risk": 32, "Market Intelligence": 9},
 }
 
 

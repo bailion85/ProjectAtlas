@@ -8,7 +8,7 @@ from core.providers.sec_provider import SecCompanyFactsProvider
 from core.services.discovery_monitor_service import compare_discovery_runs, discovery_alerts
 from core.services.financial_health_service import analyze_financial_health
 from core.services.opportunity_discovery_service import (
-    build_discovery_result, score_candidate, select_market_candidates,
+    build_discovery_result, score_candidate, score_market_feed_candidate, select_market_candidates,
 )
 
 
@@ -51,7 +51,20 @@ class DiscoveryScanService:
                 })
                 rows.append(row)
             except (ProviderError, RuntimeError, TypeError, ValueError) as exc:
-                failures.append({"Ticker": symbol, "Error": str(exc)})
+                try:
+                    row = score_market_feed_candidate(
+                        source, market_pulse.get("provider", self.provider.name), str(exc),
+                    )
+                    row.update({
+                        "Market signal": source.get("group"),
+                        "Market change": source.get("change_percentage"),
+                        "Market volume": source.get("volume"),
+                        "Market feed as of": market_pulse.get("last_updated"),
+                        "Observed": market_pulse.get("last_updated"),
+                    })
+                    rows.append(row)
+                except (TypeError, ValueError) as fallback_exc:
+                    failures.append({"Ticker": symbol, "Error": str(fallback_exc)})
         previous = self.repository.latest_discovery_run()
         result = build_discovery_result(rows, failures, radar)
         result["market_source"] = market_pulse.get("provider", self.provider.name)

@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from core.providers.market_provider import ProviderError
+from core.services.financial_health_service import analyze_financial_health
+
+SEC_PROVIDER_VERSION = 2
 
 
 class SecCompanyFactsProvider:
@@ -37,6 +40,37 @@ class SecCompanyFactsProvider:
         self.cache.put("sec_edgar", "company_facts", {"ticker": symbol}, result, 24 * 60 * 60)
         return {**result, "cache_age_seconds": 0}
 
+    def fundamentals(self, ticker: str, price: float | None = None) -> dict[str, Any]:
+        snapshot = self.company_facts(ticker)
+        health = analyze_financial_health(snapshot)
+        latest = health["rows"][-1]
+        previous = health["rows"][-2]
+        revenue = latest.get("Revenue")
+        net_income = latest.get("Net income")
+        operating_income = latest.get("Operating income")
+        equity = latest.get("Equity")
+        liabilities = latest.get("Liabilities")
+        shares = latest.get("Shares")
+        earnings_per_share = _ratio(net_income, shares)
+        book_value_per_share = _ratio(equity, shares)
+        return {
+            "symbol": snapshot["ticker"], "name": snapshot["company"], "description": "",
+            "sector": "Unknown", "industry": "Unknown", "price": price,
+            "change_percent": None,
+            "market_cap": price * shares if price is not None and shares else None,
+            "pe_ratio": _ratio(price, earnings_per_share), "forward_pe": None,
+            "peg_ratio": None, "price_to_book": _ratio(price, book_value_per_share),
+            "profit_margin": _ratio(net_income, revenue),
+            "operating_margin": _ratio(operating_income, revenue),
+            "return_on_equity": _ratio(net_income, equity),
+            "revenue_growth": _growth(revenue, previous.get("Revenue")),
+            "earnings_growth": _growth(net_income, previous.get("Net income")),
+            "debt_to_equity": _ratio(liabilities, equity),
+            "free_cashflow": latest.get("Free cash flow"), "beta": None,
+            "fifty_two_week_high": None, "fifty_two_week_low": None,
+            "analyst_target": None, "observed_at": snapshot["retrieved_at"],
+            "source": self.name, "sec_financial_health": health,
+        }
     def _ticker_map(self) -> dict[str, dict[str, Any]]:
         cached = self.cache.get("sec_edgar", "ticker_map", {})
         if cached:
@@ -56,3 +90,13 @@ class SecCompanyFactsProvider:
             raise ProviderError(f"SEC EDGAR request failed: {exc}") from exc
         except ValueError as exc:
             raise ProviderError("SEC EDGAR returned an invalid response.") from exc
+def _ratio(numerator: float | None, denominator: float | None) -> float | None:
+    if numerator is None or denominator in (None, 0):
+        return None
+    return float(numerator) / float(denominator)
+
+
+def _growth(current: float | None, previous: float | None) -> float | None:
+    if current is None or previous in (None, 0):
+        return None
+    return round(float(current) / float(previous) - 1, 6)

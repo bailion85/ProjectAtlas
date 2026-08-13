@@ -200,7 +200,7 @@ class AlphaVantageProvider(MarketDataProvider):
 
     @staticmethod
     def quota_cost(operation: str) -> int:
-        return {"search": 1, "market_movers": 1, "snapshot": 2, "news": 1, "history": 1, "daily_history": 1}.get(operation, 0)
+        return {"search": 1, "market_movers": 1, "snapshot": 2, "news": 1, "market_news": 1, "history": 1, "daily_history": 1}.get(operation, 0)
 
     def news(self, ticker: str) -> list[dict[str, Any]]:
         feed = self._get(function="NEWS_SENTIMENT", tickers=ticker, limit="10").get("feed", [])

@@ -8,8 +8,10 @@ from core.providers.economic_provider import EconomicDataProvider
 from core.providers.market_provider import MarketDataProvider, ProviderError
 from core.services.provider_cache import ProviderCache
 
+CACHED_PROVIDER_VERSION = 5
 
-MARKET_TTLS = {"search": 86400, "market_movers": 21600, "snapshot": 900, "news": 900, "history": 43200, "daily_history": 43200}
+
+MARKET_TTLS = {"search": 86400, "market_movers": 21600, "market_dashboard": 300, "market_news": 3600, "snapshot": 900, "news": 900, "history": 43200, "daily_history": 43200}
 MACRO_TTLS = {"snapshot": 21600}
 
 
@@ -100,6 +102,8 @@ class CachedMarketDataProvider(_CachedProvider, MarketDataProvider):
     def __init__(self, delegate: MarketDataProvider, cache: ProviderCache, **kwargs: Any):
         super().__init__(delegate, cache, f"market:{delegate.name}", kwargs.pop("ttls", MARKET_TTLS), **kwargs)
         self.name = delegate.name
+        self.supports_no_credit_research = bool(getattr(delegate, "supports_no_credit_research", False))
+        self.snapshot_schema_version = int(getattr(delegate, "snapshot_schema_version", 1))
 
     def search(self, query: str) -> list[dict[str, str]]:
         normalized = query.strip().lower()
@@ -111,10 +115,24 @@ class CachedMarketDataProvider(_CachedProvider, MarketDataProvider):
             raise ProviderError(f"{self.name} does not provide an automatic market-candidate feed.")
         return self._cached("market_movers", {}, reader)
 
+    def market_dashboard(self, tickers: tuple[str, ...]) -> dict[str, Any]:
+        symbols = tuple(dict.fromkeys(symbol.strip().upper() for symbol in tickers if symbol.strip()))
+        reader = getattr(self.delegate, "market_dashboard", None)
+        if reader is None:
+            raise ProviderError(f"{self.name} does not provide batched dashboard quotes.")
+        return self._cached("market_dashboard", {"tickers": symbols}, lambda: reader(symbols))
     def snapshot(self, ticker: str) -> dict[str, Any]:
         symbol = ticker.strip().upper()
-        return self._cached("snapshot", {"ticker": symbol}, lambda: self.delegate.snapshot(symbol))
+        return self._cached(
+            "snapshot", {"ticker": symbol, "schema": self.snapshot_schema_version},
+            lambda: self.delegate.snapshot(symbol),
+        )
 
+    def market_news(self, limit: int = 50) -> dict[str, Any]:
+        reader = getattr(self.delegate, "market_news", None)
+        if reader is None:
+            raise ProviderError(f"{self.name} does not provide a market-news feed.")
+        return self._cached("market_news", {"limit": int(limit)}, lambda: reader(limit))
     def news(self, ticker: str) -> list[dict[str, Any]]:
         symbol = ticker.strip().upper()
         return self._cached("news", {"ticker": symbol}, lambda: self.delegate.news(symbol))
@@ -137,7 +155,9 @@ class CachedMarketDataProvider(_CachedProvider, MarketDataProvider):
         estimate = self._uncached_cost("history", {"ticker": "SPY"}, cost("history"))
         estimate += self._uncached_cost("daily_history", {"ticker": "SPY"}, cost("daily_history"))
         for symbol in symbols:
-            estimate += self._uncached_cost("snapshot", {"ticker": symbol}, cost("snapshot"))
+            estimate += self._uncached_cost(
+                "snapshot", {"ticker": symbol, "schema": self.snapshot_schema_version}, cost("snapshot")
+            )
             estimate += self._uncached_cost("news", {"ticker": symbol}, cost("news"))
             estimate += self._uncached_cost("history", {"ticker": symbol}, cost("history"))
             estimate += self._uncached_cost("daily_history", {"ticker": symbol}, cost("daily_history"))
@@ -151,9 +171,11 @@ class CachedEconomicDataProvider(_CachedProvider, EconomicDataProvider):
     def __init__(self, delegate: EconomicDataProvider, cache: ProviderCache, **kwargs: Any):
         super().__init__(delegate, cache, f"macro:{delegate.name}", kwargs.pop("ttls", MACRO_TTLS), **kwargs)
         self.name = delegate.name
+        self.supports_no_credit_research = bool(getattr(delegate, "supports_no_credit_research", False))
+        self.snapshot_schema_version = int(getattr(delegate, "snapshot_schema_version", 1))
 
     def snapshot(self) -> dict[str, Any]:
-        return self._cached("snapshot", {}, self.delegate.snapshot)
+        return self._cached("snapshot", {"schema": 3}, self.delegate.snapshot)
 
 
 def _retryable(error: ProviderError) -> bool:
